@@ -1,0 +1,19 @@
+[package]
+name = "roost"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+
+[dependencies]
+ratatui = "0.30.0"
+crossterm = "0.29.0"
+color-eyre = "0.6"
+dialoguer = "0.12"
+dirs = "6"
+serde = {version = "1.0.228", features = ["derive"] }
+toml = "0.8"

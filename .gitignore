@@ -1,0 +1,11 @@
+/target
+.DS_Store
+.opencode/
+.claude/
+.gemini/
+.agents/
+.plannotator/
+.cursor/
+.aider*
+.codeium/
+.copilot/
