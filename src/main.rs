@@ -2,6 +2,7 @@ mod app;
 mod git;
 mod init;
 mod linker;
+pub mod logo;
 mod os_detect;
 mod pager;
 mod scanner;
@@ -679,7 +680,8 @@ fn run_doctor() -> color_eyre::Result<()> {
         for app_name in &profile.apps {
             if let Some(link_path) = local.link_paths.get(app_name)
                 && let Ok(dest) = linker::roost_dest(&prof_dir, link_path)
-                && !dest.exists() && !dest.is_symlink()
+                && !dest.exists()
+                && !dest.is_symlink()
             {
                 warnings.push(format!(
                     "app '{}' has no files in profile '{}' (expected at {})",
@@ -712,8 +714,7 @@ fn run_doctor() -> color_eyre::Result<()> {
                             }
                         }
                     }
-                } else if !profile.apps.contains(&name)
-                    && !profile.app_sources.contains_key(&name)
+                } else if !profile.apps.contains(&name) && !profile.app_sources.contains_key(&name)
                 {
                     info.push(format!("orphaned in profile '{}': {}", prof_name, name));
                 }

@@ -1,5 +1,5 @@
-use color_eyre::eyre::{eyre, Ok};
-use dialoguer::{console, console::Style, theme::ColorfulTheme, Confirm, Input, MultiSelect};
+use color_eyre::eyre::{Ok, eyre};
+use dialoguer::{Confirm, Input, MultiSelect, console, console::Style, theme::ColorfulTheme};
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -10,6 +10,7 @@ use std::{
 use crate::app::{LocalAppConfig, Profile, SharedAppConfig};
 use crate::git;
 use crate::linker;
+use crate::logo;
 use crate::scanner;
 use crate::tui;
 use crate::tui::state::OnboardingContext;
@@ -121,7 +122,9 @@ pub fn init_system() -> color_eyre::Result<()> {
             "Partial initialization detected in {} — local.toml exists but roost.toml is missing.",
             roost_dir.display()
         );
-        println!("This usually means init was interrupted after setting up the profile but before selecting apps.");
+        println!(
+            "This usually means init was interrupted after setting up the profile but before selecting apps."
+        );
         if Confirm::with_theme(&theme)
             .with_prompt("Resume setup from app selection?")
             .default(true)
@@ -400,5 +403,7 @@ pub fn init_system() -> color_eyre::Result<()> {
 
     println!("{}", separator());
     println!("Setup complete!");
+    println!("Welcome to:");
+    println!("{}", logo::LOGO);
     Ok(())
 }
