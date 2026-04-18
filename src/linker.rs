@@ -1,5 +1,5 @@
 use color_eyre::{self, eyre::eyre};
-use std::{collections::HashSet, fs, path::Path};
+use std::{collections::HashSet, fs, path::{Path, PathBuf}};
 
 // ── Path helpers ──
 
@@ -87,6 +87,12 @@ pub fn relocate(from: &Path, to: &Path) -> color_eyre::Result<()> {
     }
 
     Ok(())
+}
+
+fn tmp_backup_path(link_path: &Path) -> PathBuf {
+    let dir = std::env::temp_dir().join("roost-backups");
+    let file_name = link_path.file_name().unwrap().to_str().unwrap();
+    dir.join(format!("{}.pre-roost-backup", file_name))
 }
 
 pub(crate) fn copy_dir_recursive(from: &Path, to: &Path) -> color_eyre::Result<()> {
@@ -237,7 +243,7 @@ pub fn ensure_links(
             continue;
         }
         if link_path.exists() {
-            let backup = link_path.with_extension("pre-roost-backup");
+            let backup = tmp_backup_path(link_path);
             if relocate(link_path, &backup).is_err() {
                 continue;
             }
@@ -313,7 +319,7 @@ pub fn switch_links(
             continue;
         }
         if link_path.exists() {
-            let backup = link_path.with_extension("pre-roost-backup");
+            let backup = tmp_backup_path(link_path);
             if relocate(link_path, &backup).is_err() {
                 continue;
             }
@@ -586,7 +592,7 @@ pub fn import_app_from_profile(
     if link_path.is_symlink() {
         fs::remove_file(link_path)?;
     } else if link_path.exists() {
-        let backup = link_path.with_extension("pre-roost-backup");
+        let backup = tmp_backup_path(link_path);
         relocate(link_path, &backup)?;
     }
     if let Some(parent) = link_path.parent() {
@@ -1431,7 +1437,7 @@ mod tests {
         fs::create_dir_all(&link_path).unwrap();
         fs::write(link_path.join("existing.txt"), "original content").unwrap();
 
-        let backup = link_path.with_extension("pre-roost-backup");
+        let backup = tmp_backup_path(&link_path);
 
         let config = make_ensure_config(
             vec![("default", &["nvim"], &[])],

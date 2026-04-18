@@ -2,7 +2,7 @@ use color_eyre::eyre::{Ok, eyre};
 use dialoguer::{Confirm, Input, MultiSelect, console, console::Style, theme::ColorfulTheme};
 use std::{
     collections::{HashMap, HashSet},
-    fs,
+    env, fs,
     path::PathBuf,
     process::Command,
 };
@@ -99,8 +99,12 @@ fn select_ignores(theme: &ColorfulTheme) -> color_eyre::Result<HashSet<String>> 
 
 pub fn init_system() -> color_eyre::Result<()> {
     let theme = roost_theme();
-    let home = dirs::home_dir().expect("Failed to find home directory");
-    let roost_dir = home.join(".roost");
+    let roost_dir = if let std::result::Result::Ok(env_dir) = env::var("ROOST_DIR") {
+        PathBuf::from(env_dir)
+    } else {
+        let home = dirs::home_dir().expect("Failed to find home directory");
+        home.join(".roost")
+    };
     let roost_config = roost_dir.join("roost.toml");
     let local_config = roost_dir.join("local.toml");
 
