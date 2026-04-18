@@ -42,7 +42,7 @@ Roost is a terminal-based dotfile manager that moves your application configurat
 From source:
 
 ```sh
-git clone <repo-url>
+git clone https://github.com/mt-22/roost.git
 cd roost
 cargo install --path .
 ```
