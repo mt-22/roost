@@ -186,7 +186,7 @@ pub fn init_system() -> color_eyre::Result<()> {
 
         if !git::is_git_repo(&roost_dir) {
             println!("Initializing repo...");
-            git::git(&roost_dir, &["init"])?;
+            git::git(&roost_dir, &["init", "-b", "main"])?;
         }
         println!("Adding remote origin...");
         git::git(&roost_dir, &["remote", "add", "origin", &remote_url])?;
@@ -208,7 +208,7 @@ pub fn init_system() -> color_eyre::Result<()> {
         remote = Some(remote_url);
     } else if !git::is_git_repo(&roost_dir) {
         println!("Initializing git repo (no remote)...");
-        git::git(&roost_dir, &["init"])?;
+        git::git(&roost_dir, &["init", "-b", "main"])?;
     }
 
     println!("{}", separator());

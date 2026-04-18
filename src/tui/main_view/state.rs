@@ -66,7 +66,7 @@ impl MainViewTui {
         roost_dir: PathBuf,
         config_path: PathBuf,
         local_config_path: PathBuf,
-        local: LocalAppConfig,
+        mut local: LocalAppConfig,
     ) -> color_eyre::Result<Self> {
         let active_profile = local.active_profile.clone();
         let mut app_names: Vec<String> = config
@@ -76,6 +76,7 @@ impl MainViewTui {
             .map(|(name, _)| name.clone())
             .collect();
         app_names.sort();
+        let _ = crate::linker::resolve_missing_link_paths(&active_profile, &config, &mut local);
 
         let mut app_list_state = ListState::default();
         if !app_names.is_empty() {
@@ -514,6 +515,7 @@ impl MainViewTui {
             return Ok(false);
         };
         let old_profile = self.active_profile.clone();
+        crate::linker::resolve_missing_link_paths(&name, &self.config, &mut self.local);
         crate::linker::switch_links(
             &old_profile,
             &name,
@@ -854,7 +856,7 @@ impl MainViewTui {
                         &mut self.config,
                         &self.config_path,
                         &self.roost_dir,
-                        &self.local.link_paths,
+                        &mut self.local,
                     )?;
                     self.rebuild_app_list();
                     self.pending_auto_commit = Some(format!(

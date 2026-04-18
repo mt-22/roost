@@ -335,6 +335,102 @@ pub fn switch_links(
     }
 }
 
+/// For apps in the given profile that have no entry in `local.link_paths`,
+/// try to find them on the filesystem by scanning known source directories.
+/// Populates `link_paths` for any matches found. Returns the number resolved.
+pub fn resolve_missing_link_paths(
+    profile_name: &str,
+    config: &crate::app::SharedAppConfig,
+    local: &mut crate::app::LocalAppConfig,
+) -> usize {
+    let profile = match config.profiles.get(profile_name) {
+        Some(p) => p,
+        None => return 0,
+    };
+
+    let sources = crate::scanner::get_likely_sources();
+    let mut resolved = 0;
+
+    for app_name in &profile.apps {
+        if local.link_paths.contains_key(app_name) {
+            continue;
+        }
+
+        if let Some(path) = find_app_on_filesystem(app_name, &sources) {
+            local.link_paths.insert(app_name.clone(), path);
+            resolved += 1;
+        }
+    }
+
+    resolved
+}
+
+/// Search known source directories for an entry matching `app_name`.
+/// Checks for both a directory and a file with the exact name.
+/// Returns None if not found — the app simply won't be linked on this device.
+pub fn find_app_on_filesystem(
+    app_name: &str,
+    sources: &[PathBuf],
+) -> Option<PathBuf> {
+    for source in sources {
+        let dir_candidate = source.join(app_name);
+        if dir_candidate.is_dir() {
+            return Some(dir_candidate);
+        }
+        let file_candidate = source.join(app_name);
+        if file_candidate.is_file() {
+            return Some(file_candidate);
+        }
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        let dot_candidate = home.join(format!(".{}", app_name));
+        if dot_candidate.exists() {
+            return Some(dot_candidate);
+        }
+    }
+
+    None
+}
+
+/// Scan all profiles for apps referenced in `profile.apps` but missing from
+/// `config.apps`. Create minimal Application entries for any found.
+/// Returns the number of entries created.
+pub fn adopt_orphaned_apps(
+    config: &mut crate::app::SharedAppConfig,
+    config_path: &Path,
+) -> usize {
+    let mut adopted = 0;
+
+    for (prof_name, profile) in &config.profiles {
+        for app_name in &profile.apps {
+            if config.apps.contains_key(app_name) {
+                continue;
+            }
+
+            config.apps.insert(
+                app_name.clone(),
+                crate::app::Application {
+                    name: app_name.clone(),
+                    primary_config: None,
+                    on_profiles: vec![prof_name.clone()],
+                },
+            );
+            adopted += 1;
+        }
+    }
+
+    if adopted > 0 {
+        for app in config.apps.values_mut() {
+            app.on_profiles.sort();
+            app.on_profiles.dedup();
+        }
+        let _ = config.save(config_path);
+    }
+
+    adopted
+}
+
 /// Unlink: remove symlink and restore files to their original location.
 ///
 /// For sourced apps (where the roost slot is itself a symlink), both the
@@ -518,7 +614,7 @@ pub fn import_app_from_profile(
     config: &mut crate::app::SharedAppConfig,
     config_path: &Path,
     roost_dir: &Path,
-    link_paths: &std::collections::HashMap<String, std::path::PathBuf>,
+    local: &mut crate::app::LocalAppConfig,
 ) -> color_eyre::Result<()> {
     if to_profile == source_profile {
         return Err(eyre!("Cannot import from the same profile."));
@@ -564,15 +660,23 @@ pub fn import_app_from_profile(
         return Err(eyre!("Would create a symlink cycle."));
     }
 
-    let link_path = link_paths
-        .get(app_name)
-        .ok_or_else(|| eyre!("No local link path for app '{}' on this device.", app_name))?;
+    let link_path = if let Some(lp) = local.link_paths.get(app_name) {
+        lp.clone()
+    } else if let Some(detected) = find_app_on_filesystem(app_name, &crate::scanner::get_likely_sources()) {
+        local.link_paths.insert(app_name.to_string(), detected.clone());
+        detected
+    } else {
+        return Err(eyre!(
+            "No link path for '{}' on this device. Place its config at a standard location (e.g. ~/.config/{}) or run `roost add <path>` first.",
+            app_name, app_name
+        ));
+    };
 
     let to_prof_dir = roost_dir.join(to_profile);
     let source_prof_dir = roost_dir.join(source_profile);
 
-    let dest = roost_dest(&to_prof_dir, link_path)?;
-    let source_path = roost_dest(&source_prof_dir, link_path)?;
+    let dest = roost_dest(&to_prof_dir, &link_path)?;
+    let source_path = roost_dest(&source_prof_dir, &link_path)?;
 
     // Create intermediate symlink: ~/.roost/<to>/<app> → ~/.roost/<source>/<app>
     if dest.is_symlink() {
@@ -590,15 +694,15 @@ pub fn import_app_from_profile(
 
     // Update the external symlink (link_path) to point through the new chain
     if link_path.is_symlink() {
-        fs::remove_file(link_path)?;
+        fs::remove_file(&link_path)?;
     } else if link_path.exists() {
-        let backup = tmp_backup_path(link_path);
-        relocate(link_path, &backup)?;
+        let backup = tmp_backup_path(&link_path);
+        relocate(&link_path, &backup)?;
     }
     if let Some(parent) = link_path.parent() {
         fs::create_dir_all(parent)?;
     }
-    symlink(&dest, link_path)?;
+    symlink(&dest, &link_path)?;
 
     // Register in config
     {
@@ -611,10 +715,20 @@ pub fn import_app_from_profile(
             .app_sources
             .insert(app_name.to_string(), source_profile.to_string());
     }
-    if let Some(app) = config.apps.get_mut(app_name)
-        && !app.on_profiles.contains(&to_profile.to_string()) {
+    if let Some(app) = config.apps.get_mut(app_name) {
+        if !app.on_profiles.contains(&to_profile.to_string()) {
             app.on_profiles.push(to_profile.to_string());
         }
+    } else {
+        config.apps.insert(
+            app_name.to_string(),
+            crate::app::Application {
+                name: app_name.to_string(),
+                primary_config: None,
+                on_profiles: vec![to_profile.to_string()],
+            },
+        );
+    }
 
     config.save(config_path)?;
     Ok(())
@@ -1546,13 +1660,22 @@ mod tests {
         profiles: Vec<(&str, &[&str], &[(&str, &str)])>,
         apps: Vec<(&str, &[&str])>,
         link_path: &Path,
-    ) -> (crate::app::SharedAppConfig, HashMap<String, std::path::PathBuf>) {
+    ) -> (crate::app::SharedAppConfig, crate::app::LocalAppConfig) {
         let config = make_switch_config(profiles, apps);
         config.save(config_path).unwrap();
         fs::create_dir_all(link_path).unwrap();
-        let mut link_paths = HashMap::new();
-        link_paths.insert("nvim".to_string(), link_path.to_path_buf());
-        (config, link_paths)
+        let mut local = crate::app::LocalAppConfig {
+            active_profile: "source".to_string(),
+            os_info: crate::os_detect::OsInfo {
+                family: "unix".to_string(),
+                name: "test".to_string(),
+                version: Some("1.0.0".to_string()),
+                arch: std::env::consts::ARCH.to_string(),
+            },
+            link_paths: HashMap::new(),
+        };
+        local.link_paths.insert("nvim".to_string(), link_path.to_path_buf());
+        (config, local)
     }
 
     #[test]
@@ -1568,7 +1691,7 @@ mod tests {
         fs::write(source_nvim.join("lua/plugins.lua"), "plugins").unwrap();
         fs::create_dir_all(roost_dir.join("target")).unwrap();
 
-        let (mut config, link_paths) = make_import_setup(
+        let (mut config, mut local) = make_import_setup(
             &roost_dir,
             &config_path,
             vec![
@@ -1580,7 +1703,7 @@ mod tests {
         );
 
         import_app_from_profile(
-            "nvim", "target", "source", &mut config, &config_path, &roost_dir, &link_paths,
+            "nvim", "target", "source", &mut config, &config_path, &roost_dir, &mut local,
         )
         .unwrap();
 
@@ -1603,7 +1726,7 @@ mod tests {
 
         fs::create_dir_all(roost_dir.join("source").join("nvim")).unwrap();
 
-        let (mut config, link_paths) = make_import_setup(
+        let (mut config, mut local) = make_import_setup(
             &roost_dir,
             &config_path,
             vec![("source", &["nvim"], &[])],
@@ -1612,7 +1735,7 @@ mod tests {
         );
 
         let result = import_app_from_profile(
-            "nvim", "source", "source", &mut config, &config_path, &roost_dir, &link_paths,
+            "nvim", "source", "source", &mut config, &config_path, &roost_dir, &mut local,
         );
         assert!(result.is_err());
     }
@@ -1627,7 +1750,7 @@ mod tests {
         fs::create_dir_all(roost_dir.join("source").join("nvim")).unwrap();
         fs::create_dir_all(roost_dir.join("target")).unwrap();
 
-        let (mut config, link_paths) = make_import_setup(
+        let (mut config, mut local) = make_import_setup(
             &roost_dir,
             &config_path,
             vec![
@@ -1639,7 +1762,7 @@ mod tests {
         );
 
         let result = import_app_from_profile(
-            "nvim", "target", "source", &mut config, &config_path, &roost_dir, &link_paths,
+            "nvim", "target", "source", &mut config, &config_path, &roost_dir, &mut local,
         );
         assert!(result.is_err());
     }
@@ -1654,7 +1777,7 @@ mod tests {
         fs::create_dir_all(roost_dir.join("a").join("nvim")).unwrap();
         fs::create_dir_all(roost_dir.join("b")).unwrap();
 
-        let (mut config, link_paths) = make_import_setup(
+        let (mut config, mut local) = make_import_setup(
             &roost_dir,
             &config_path,
             vec![
@@ -1666,12 +1789,27 @@ mod tests {
         );
 
         let result = import_app_from_profile(
-            "nvim", "a", "b", &mut config, &config_path, &roost_dir, &link_paths,
+            "nvim", "a", "b", &mut config, &config_path, &roost_dir, &mut local,
         );
         assert!(result.is_err());
     }
 
     // ── copy_to_profile ──
+
+    fn make_copy_setup(
+        _roost_dir: &Path,
+        config_path: &Path,
+        profiles: Vec<(&str, &[&str], &[(&str, &str)])>,
+        apps: Vec<(&str, &[&str])>,
+        link_path: &Path,
+    ) -> (crate::app::SharedAppConfig, HashMap<String, std::path::PathBuf>) {
+        let config = make_switch_config(profiles, apps);
+        config.save(config_path).unwrap();
+        fs::create_dir_all(link_path).unwrap();
+        let mut link_paths = HashMap::new();
+        link_paths.insert("nvim".to_string(), link_path.to_path_buf());
+        (config, link_paths)
+    }
 
     #[test]
     fn test_copy_to_profile_success() {
@@ -1686,7 +1824,7 @@ mod tests {
         fs::write(source_nvim.join("lua/plugins.lua"), "plugins").unwrap();
         fs::create_dir_all(roost_dir.join("dest")).unwrap();
 
-        let (mut config, link_paths) = make_import_setup(
+        let (mut config, link_paths) = make_copy_setup(
             &roost_dir,
             &config_path,
             vec![
@@ -1721,7 +1859,7 @@ mod tests {
 
         fs::create_dir_all(roost_dir.join("source").join("nvim")).unwrap();
 
-        let (mut config, link_paths) = make_import_setup(
+        let (mut config, link_paths) = make_copy_setup(
             &roost_dir,
             &config_path,
             vec![("source", &["nvim"], &[])],
@@ -1745,7 +1883,7 @@ mod tests {
         fs::create_dir_all(roost_dir.join("source").join("nvim")).unwrap();
         fs::create_dir_all(roost_dir.join("dest").join("nvim")).unwrap();
 
-        let (mut config, link_paths) = make_import_setup(
+        let (mut config, link_paths) = make_copy_setup(
             &roost_dir,
             &config_path,
             vec![
@@ -1771,7 +1909,7 @@ mod tests {
 
         fs::create_dir_all(&roost_dir).unwrap();
 
-        let (mut config, link_paths) = make_import_setup(
+        let (mut config, link_paths) = make_copy_setup(
             &roost_dir,
             &config_path,
             vec![

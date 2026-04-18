@@ -27,7 +27,8 @@ fn main() -> color_eyre::Result<()> {
         Some("restore") => return run_restore(),
         Some("remote") => return run_remote(&args),
         Some("add") => return run_add(&args),
-        Some("doctor") => return run_doctor(),
+        Some("doctor") => return run_doctor(&args),
+        Some("adopt") => return run_adopt(),
         Some("status") => return run_status(),
         Some("help") | Some("--help") | Some("-h") => {
             print_help();
@@ -58,7 +59,7 @@ fn print_help() {
     println!("  where <app>         Print where an app's files live");
     println!("  restore             Repair all symlinks");
     println!("  remote [set <url>]  Show or set the git remote URL");
-    println!("  doctor              Run diagnostics on config and symlinks");
+    println!("  doctor [--fix]      Run diagnostics on config and symlinks");
     println!("  diff                Show uncommitted changes");
     println!("  log                 Show recent commits");
     println!("  undo [n]            Undo last n commit(s) (destructive)");
@@ -93,6 +94,11 @@ fn run_sync() -> color_eyre::Result<()> {
     let config = app::SharedAppConfig::load(&roost_config)?;
     let mut local = app::LocalAppConfig::load(&local_config_path)?;
     app::migrate_link_paths_if_needed(&roost_config, &mut local, &local_config_path)?;
+    let active = local.active_profile.clone();
+    let resolved = linker::resolve_missing_link_paths(&active, &config, &mut local);
+    if resolved > 0 {
+        local.save(&local_config_path)?;
+    }
     linker::ensure_links(&config, &local, &roost_dir);
     Ok(())
 }
@@ -155,6 +161,7 @@ fn run_profile(args: &[String]) -> color_eyre::Result<()> {
                 std::process::exit(1);
             }
             let old_profile = local.active_profile.clone();
+            linker::resolve_missing_link_paths(name, &config, &mut local);
             linker::switch_links(&old_profile, name, &config, &local, &roost_dir);
             local.active_profile = name.to_string();
             local.save(&local_config_path)?;
@@ -384,11 +391,13 @@ fn run_remove(args: &[String]) -> color_eyre::Result<()> {
         return Ok(());
     }
 
-    if let Some(link_path) = local.link_paths.get(app_name) {
+    if let Some(app) = config.apps.get(app_name).cloned() {
         for profile_name in &app.on_profiles {
-            let profile_dir = roost_dir.join(profile_name);
-            if let Err(e) = linker::unlink(link_path, &profile_dir, &roost_dir) {
-                eprintln!("  warn: could not unlink: {}", e);
+            if let Some(link_path) = local.link_paths.get(app_name) {
+                let profile_dir = roost_dir.join(profile_name);
+                if let Err(e) = linker::unlink(link_path, &profile_dir, &roost_dir) {
+                    eprintln!("  warn: could not unlink {}: {}", app_name, e);
+                }
             }
             if let Some(profile) = config.profiles.get_mut(profile_name) {
                 profile.apps.remove(app_name);
@@ -499,6 +508,7 @@ fn run_add(args: &[String]) -> color_eyre::Result<()> {
         if let Some(profile) = config.profiles.get_mut(&active_profile) {
             profile.apps.insert(app_name.clone());
         }
+        local.link_paths.insert(app_name.clone(), path.clone());
         config.save(&roost_config)?;
         local.save(&local_config_path)?;
         println!("Added '{}'.", app_name);
@@ -641,14 +651,67 @@ fn run_remote(args: &[String]) -> color_eyre::Result<()> {
     Ok(())
 }
 
-fn run_doctor() -> color_eyre::Result<()> {
+fn run_adopt() -> color_eyre::Result<()> {
+    let (roost_dir, roost_config, _local_config_path) = roost_paths()?;
+    let mut config = app::SharedAppConfig::load(&roost_config)?;
+    let adopted = linker::adopt_orphaned_apps(&mut config, &roost_config);
+    if adopted == 0 {
+        println!("Nothing to adopt. All apps are properly registered.");
+    } else {
+        println!("Adopted {} app(s). Run `roost sync` to push changes.", adopted);
+        if git::is_git_repo(&roost_dir) {
+            let _ = git::auto_commit(&roost_dir, &format!("adopt {} app(s)", adopted));
+        }
+    }
+    Ok(())
+}
+
+fn run_doctor(args: &[String]) -> color_eyre::Result<()> {
     let (roost_dir, roost_config, local_config_path) = roost_paths()?;
-    let config = app::SharedAppConfig::load(&roost_config)?;
+    let mut config = app::SharedAppConfig::load(&roost_config)?;
     let local = app::LocalAppConfig::load(&local_config_path)?;
+
+    let fix = args.iter().any(|s| s == "--fix");
+    let mut modified = false;
 
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut info = Vec::new();
+
+    // Pass 1: find orphaned apps in profiles (fixable)
+    let mut orphans = Vec::new();
+    for (prof_name, profile) in &config.profiles {
+        for app_name in &profile.apps {
+            if !config.apps.contains_key(app_name) {
+                orphans.push((prof_name.clone(), app_name.clone()));
+            }
+        }
+    }
+
+    if fix && !orphans.is_empty() {
+        for (prof_name, app_name) in &orphans {
+            if let Some(prof) = config.profiles.get_mut(prof_name) {
+                prof.apps.remove(app_name);
+                prof.app_sources.remove(app_name);
+                modified = true;
+            }
+        }
+        println!("Fixed {} orphaned app reference(s).", orphans.len());
+    } else {
+        for (prof_name, app_name) in &orphans {
+            errors.push(format!(
+                "profile '{}' references app '{}' which doesn't exist in config.apps",
+                prof_name, app_name
+            ));
+        }
+    }
+
+    if modified {
+        config.save(&roost_config)?;
+        if git::is_git_repo(&roost_dir) {
+            let _ = git::auto_commit(&roost_dir, "doctor --fix: removed orphaned app references");
+        }
+    }
 
     for (name, link_path) in &local.link_paths {
         if link_path.is_symlink() {
@@ -724,43 +787,34 @@ fn run_doctor() -> color_eyre::Result<()> {
 
     for (prof_name, profile) in &config.profiles {
         for (app_name, source_profile) in &profile.app_sources {
-            if !config.profiles.contains_key(source_profile) {
+            if let Some(source_prof) = config.profiles.get(source_profile) {
+                if !source_prof.apps.contains(app_name) {
+                    errors.push(format!(
+                        "app '{}' in profile '{}' sources from '{}', but '{}' doesn't contain that app",
+                        app_name, prof_name, source_profile, source_profile
+                    ));
+                }
+            } else {
                 errors.push(format!(
                     "app '{}' in profile '{}' sources from '{}', which doesn't exist",
                     app_name, prof_name, source_profile
-                ));
-                continue;
-            }
-            let source_prof = config.profiles.get(source_profile).unwrap();
-            if !source_prof.apps.contains(app_name) {
-                errors.push(format!(
-                    "app '{}' in profile '{}' sources from '{}', but '{}' doesn't contain that app",
-                    app_name, prof_name, source_profile, source_profile
                 ));
             }
         }
     }
 
-    for (prof_name, profile) in &config.profiles {
-        for app_name in &profile.apps {
-            if !config.apps.contains_key(app_name) {
-                errors.push(format!(
-                    "profile '{}' references app '{}' which doesn't exist in config.apps",
-                    prof_name, app_name
-                ));
-            }
-        }
-    }
     for (app_name, app) in &config.apps {
         for prof in &app.on_profiles {
-            if !config.profiles.contains_key(prof) {
+            if let Some(p) = config.profiles.get(prof) {
+                if !p.apps.contains(app_name) {
+                    warnings.push(format!(
+                        "app '{}' lists profile '{}' in on_profiles, but that profile doesn't list the app",
+                        app_name, prof
+                    ));
+                }
+            } else {
                 warnings.push(format!(
                     "app '{}' references profile '{}' which doesn't exist",
-                    app_name, prof
-                ));
-            } else if !config.profiles.get(prof).unwrap().apps.contains(app_name) {
-                warnings.push(format!(
-                    "app '{}' lists profile '{}' in on_profiles, but that profile doesn't list the app",
                     app_name, prof
                 ));
             }
