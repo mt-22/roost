@@ -9,9 +9,11 @@ use std::{
 
 pub trait MillerEntry {
     fn path(&self) -> &Path;
+    #[allow(dead_code)]
     fn is_dir(&self) -> bool;
 }
 
+#[allow(dead_code)]
 pub struct OnboardingContext {
     pub profile_name: String,
     pub sources: Vec<PathBuf>,
@@ -25,6 +27,7 @@ pub enum Tab {
     Browse,
 }
 
+#[allow(dead_code)]
 pub struct TabState {
     pub label: String,
     pub source: PathBuf,

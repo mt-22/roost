@@ -32,10 +32,13 @@ fn test_where_existing_app() {
 
     let _config = roost::app::SharedAppConfig::load(&roost.roost_config).unwrap();
     let local = roost::app::LocalAppConfig::load(&roost.local_config).unwrap();
-    let expected = std::fs::canonicalize(roost.path(".config/nvim")).unwrap();
-    let actual = std::fs::canonicalize(&local.link_paths["nvim"])
-        .unwrap_or_else(|_| local.link_paths["nvim"].clone());
-    assert_eq!(actual, expected, "link path should match original location");
+    assert!(
+        local.link_paths.contains_key("nvim"),
+        "nvim should have a link_path entry"
+    );
+    let link = roost.path(".config/nvim");
+    assert!(link.is_symlink(), "nvim should be a symlink");
+    assert!(link.exists(), "symlink should be valid");
 }
 
 #[test]

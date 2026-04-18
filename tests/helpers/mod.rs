@@ -68,25 +68,27 @@ impl TestRoost {
 
     pub fn init_git(&self) {
         std::process::Command::new("git")
-            .args(["init"])
+            .args(["init", "-b", "main"])
             .current_dir(&self.roost_dir)
             .output()
             .expect("failed to init git repo");
+        std::process::Command::new("git")
+            .args(["config", "user.name", "test"])
+            .current_dir(&self.roost_dir)
+            .output()
+            .expect("failed to set git user.name");
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(&self.roost_dir)
+            .output()
+            .expect("failed to set git user.email");
         std::process::Command::new("git")
             .args(["add", "-A"])
             .current_dir(&self.roost_dir)
             .output()
             .expect("failed to git add");
         std::process::Command::new("git")
-            .args([
-                "-c",
-                "user.name=test",
-                "-c",
-                "user.email=test@test.com",
-                "commit",
-                "-m",
-                "init",
-            ])
+            .args(["commit", "-m", "init"])
             .current_dir(&self.roost_dir)
             .output()
             .expect("failed to git commit");

@@ -375,7 +375,7 @@ fn run_remove(args: &[String]) -> color_eyre::Result<()> {
         std::process::exit(1);
     });
 
-    let Some(app) = config.apps.get(app_name).cloned() else {
+    let Some(_app) = config.apps.get(app_name).cloned() else {
         eprintln!("App '{}' is not managed by roost.", app_name);
         std::process::exit(1);
     };
