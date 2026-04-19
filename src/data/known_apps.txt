@@ -1,0 +1,177 @@
+# Well-known application/config directory names.
+# Used to boost sorting confidence during source scanning.
+# One name per line, lowercase. Lines starting with # are comments.
+
+# ── Shells ──
+zsh
+bash
+fish
+nushell
+
+# ── Editors ──
+nvim
+neovim
+vim
+emacs
+helix
+kakoune
+micro
+nano
+
+# ── Terminals ──
+alacritty
+kitty
+wezterm
+ghostty
+foot
+rio
+st
+iterm2
+hyper
+
+# ── Multiplexers ──
+tmux
+zellij
+screen
+
+# ── Window managers / compositors ──
+hyprland
+sway
+i3
+bspwm
+awesome
+dwm
+qtile
+openbox
+herbstluftwm
+river
+wayfire
+labwc
+niri
+xmonad
+spectrwm
+leftwm
+dk
+
+# ── Bars / widgets ──
+eww
+waybar
+polybar
+i3status
+i3status-rust
+i3blocks
+yambar
+ags
+sketchybar
+
+# ── Launchers / menus ──
+rofi
+wofi
+dmenu
+fuzzel
+tofi
+bemenu
+ulauncher
+albert
+
+# ── Notification daemons ──
+dunst
+mako
+swaync
+fnott
+
+# ── Compositor tools / display ──
+kanshi
+swaylock
+swayidle
+hyprlock
+hypridle
+hyprpaper
+wlsunset
+gammastep
+picom
+compton
+
+# ── Lock screens / idle ──
+swaylock
+waylock
+gtklock
+
+# ── File managers ──
+ranger
+lf
+yazi
+nnn
+mc
+thunar
+vifm
+
+# ── Git / VCS ──
+git
+gh
+lazygit
+delta
+difftastic
+tig
+
+# ── Dev tools ──
+starship
+direnv
+mise
+asdf
+nix
+conda
+rustup
+cargo
+npm
+yarn
+pnpm
+bun
+deno
+pip
+poetry
+
+# ── System monitors ──
+btop
+htop
+gotop
+bottom
+conky
+glances
+
+# ── Media ──
+mpv
+mpd
+ncmpcpp
+cava
+cmus
+moc
+
+# ── macOS specific ──
+karabiner
+hammerspoon
+yabai
+skhd
+aerospace
+borders
+finicky
+
+# ── Misc ──
+ssh
+gpg
+fontconfig
+gtk-3.0
+gtk-4.0
+qt5ct
+qt6ct
+xdg
+systemd
+environment.d
+mimeapps.list
+user-dirs.dirs
+bat
+ripgrep
+fd
+fzf
+zoxide
+atuin

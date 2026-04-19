@@ -1,0 +1,66 @@
+# Well-known dotfiles found directly in $HOME.
+# Used to boost sorting confidence during source scanning.
+# One name per line (include the leading dot). Lines starting with # are comments.
+
+# ── Shell configs ──
+.zshrc
+.zshenv
+.zprofile
+.zlogin
+.zlogout
+.bashrc
+.bash_profile
+.bash_aliases
+.bash_logout
+.profile
+.inputrc
+
+# ── Editor configs ──
+.vimrc
+.gvimrc
+.exrc
+.editorconfig
+
+# ── Git ──
+.gitconfig
+.gitignore_global
+
+# ── Tmux ──
+.tmux.conf
+
+# ── Tool configs ──
+.npmrc
+.yarnrc
+.gemrc
+.curlrc
+.wgetrc
+.screenrc
+.prettierrc
+.eslintrc
+.pylintrc
+.flake8
+.condarc
+.Renviron
+.Rprofile
+
+# ── Nix ──
+.nix-channels
+.nixpkgs
+
+# ── X11 ──
+.xinitrc
+.xprofile
+.Xresources
+.Xdefaults
+.xbindkeysrc
+.xmodmap
+
+# ── Wayland ──
+.gtkrc-2.0
+
+# ── Misc ──
+.hushlogin
+.mailrc
+.wgetrc
+.dircolors
+.starship.toml
