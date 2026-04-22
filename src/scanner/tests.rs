@@ -79,14 +79,13 @@ fn no_ignore_when_not_matching() {
 }
 
 #[test]
-fn scan_home_discovers_items() {
+fn scan_directory_discovers_items() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = create_dir(tmp.path(), ".config");
-    create_dir(&config_dir, "nvim");
+    create_dir(tmp.path(), "nvim");
     create_file(tmp.path(), ".zshrc");
 
     let ignored = HashSet::new();
-    let results = scan_home(tmp.path(), &ignored).unwrap();
+    let results = scan_directory(tmp.path(), &ignored);
 
     assert!(!results.is_empty());
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
@@ -95,14 +94,13 @@ fn scan_home_discovers_items() {
 }
 
 #[test]
-fn scan_home_respects_ignores() {
+fn scan_directory_respects_ignores() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = create_dir(tmp.path(), ".config");
-    create_dir(&config_dir, "node_modules");
-    create_dir(&config_dir, "nvim");
+    create_dir(tmp.path(), "node_modules");
+    create_dir(tmp.path(), "nvim");
 
     let ignored: HashSet<String> = ["node_modules".into()].into();
-    let results = scan_home(tmp.path(), &ignored).unwrap();
+    let results = scan_directory(tmp.path(), &ignored);
 
     let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
     assert!(!names.contains(&"node_modules"));
@@ -110,14 +108,14 @@ fn scan_home_respects_ignores() {
 }
 
 #[test]
-fn scan_home_sorted_by_confidence() {
+fn scan_directory_sorted_by_confidence() {
     let tmp = TempDir::new().unwrap();
     create_file(tmp.path(), ".zshrc");
     create_file(tmp.path(), "random.txt");
     create_dir(tmp.path(), ".config");
 
     let ignored = HashSet::new();
-    let results = scan_home(tmp.path(), &ignored).unwrap();
+    let results = scan_directory(tmp.path(), &ignored);
 
     for window in results.windows(2) {
         assert!(window[0].confidence >= window[1].confidence);

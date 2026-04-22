@@ -1,4 +1,3 @@
-use color_eyre::Result;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -87,20 +86,16 @@ fn matches_ignore(name: &str, ignored: &HashSet<String>) -> bool {
     false
 }
 
-fn scan_directory(
-    dir: &Path,
-    max_depth: u32,
-    ignored: &HashSet<String>,
-    results: &mut Vec<DiscoveredItem>,
-) {
+pub fn scan_directory(dir: &Path, ignored: &HashSet<String>) -> Vec<DiscoveredItem> {
+    let mut results = Vec::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
+        return results;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
 
-        if name.starts_with('.') && name == ".DS_Store" {
+        if name == ".DS_Store" {
             continue;
         }
         if matches_ignore(&name, ignored) {
@@ -115,39 +110,14 @@ fn scan_directory(
 
         let confidence = score_item(&name, &path, &item_type);
         results.push(DiscoveredItem {
-            path: path.clone(),
+            path,
             name,
             confidence,
             item_type,
         });
-
-        if item_type == ItemType::Dir && max_depth > 0 {
-            scan_directory(&path, max_depth - 1, ignored, results);
-        }
     }
-}
-
-pub fn scan_home(home: &Path, ignored: &HashSet<String>) -> Result<Vec<DiscoveredItem>> {
-    let mut results = Vec::new();
-
-    let scan_targets = [
-        ("config", home.join(".config")),
-        ("library", home.join("Library/Application Support")),
-        ("local_bin", home.join(".local/bin")),
-        ("ssh", home.join(".ssh")),
-    ];
-
-    for (_, dir) in &scan_targets {
-        if dir.exists() {
-            scan_directory(dir, 0, ignored, &mut results);
-        }
-    }
-
-    // Scan $HOME direct children (depth 0 only)
-    scan_directory(home, 0, ignored, &mut results);
-
     results.sort_by(|a, b| b.confidence.cmp(&a.confidence));
-    Ok(results)
+    results
 }
 
 #[cfg(test)]
