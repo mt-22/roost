@@ -22,13 +22,10 @@ pub fn ingest(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> 
 
     fs::create_dir_all(roost_dir.join(BACKUP_DIR_NAME))?;
 
-    let app_dest: PathBuf;
-    if is_dir {
-        app_dest = roost_dir.join(app_name);
-    } else {
+    if !is_dir {
         fs::create_dir_all(roost_dir.join(MISC_DIR_NAME))?;
-        app_dest = roost_dir.join(MISC_DIR_NAME).join(app_name);
     }
+    let app_dest = app_dest(roost_dir, app_name, is_dir);
 
     if origin.is_dir() {
         copy_dir_recursive(&origin, &backup_dest)?;
@@ -51,12 +48,7 @@ pub fn app_dest(roost_dir: &Path, app_name: &str, is_dir: bool) -> PathBuf {
     }
 }
 
-pub fn restore(
-    origin: &Path,
-    roost_dir: &Path,
-    app_name: &str,
-    is_dir: bool,
-) -> Result<()> {
+pub fn restore(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> Result<()> {
     let dest = app_dest(roost_dir, app_name, is_dir);
 
     if !dest.exists() {
@@ -89,12 +81,7 @@ pub fn restore(
     Ok(())
 }
 
-pub fn unlink(
-    origin: &Path,
-    roost_dir: &Path,
-    app_name: &str,
-    is_dir: bool,
-) -> Result<()> {
+pub fn unlink(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> Result<()> {
     let dest = app_dest(roost_dir, app_name, is_dir);
 
     let meta = fs::symlink_metadata(origin)?;
@@ -197,7 +184,11 @@ pub fn ensure_links(
             fs::create_dir_all(parent)?;
         }
         create_symlink(&dest, origin, app.is_dir)?;
-        actions.push(format!("LINKED: {} -> {}", origin.display(), dest.display()));
+        actions.push(format!(
+            "LINKED: {} -> {}",
+            origin.display(),
+            dest.display()
+        ));
     }
 
     Ok(actions)
