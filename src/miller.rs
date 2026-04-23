@@ -280,3 +280,150 @@ fn render_file_indicator(buf: &mut Buffer, area: Rect) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn load_reads_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("subdir")).unwrap();
+        fs::write(dir.path().join("alpha.txt"), b"a").unwrap();
+        fs::write(dir.path().join("beta.txt"), b"b").unwrap();
+
+        let col = MillerColumn::load(dir.path().to_path_buf()).unwrap();
+        assert!(!col.entries.is_empty());
+        assert_eq!(col.cursor, 0);
+        assert_eq!(col.scroll, 0);
+
+        let names: Vec<String> = col
+            .entries
+            .iter()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["subdir", "alpha.txt", "beta.txt"]);
+    }
+
+    #[test]
+    fn load_empty_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let col = MillerColumn::load(dir.path().to_path_buf()).unwrap();
+        assert!(col.entries.is_empty());
+        assert_eq!(col.cursor, 0);
+        assert_eq!(col.scroll, 0);
+    }
+
+    #[test]
+    fn move_up_clamps_at_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.txt"), b"a").unwrap();
+        fs::write(dir.path().join("b.txt"), b"b").unwrap();
+        let mut mc = MillerColumns::new(dir.path());
+        mc.move_up();
+        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("a.txt"));
+    }
+
+    #[test]
+    fn move_down_advances_and_clamps() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..6u8 {
+            fs::write(dir.path().join(format!("file{i}.txt")), [i]).unwrap();
+        }
+        let mut mc = MillerColumns::new(dir.path());
+
+        mc.move_down();
+        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("file1.txt"));
+        mc.move_down();
+        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("file2.txt"));
+        mc.move_down();
+        mc.move_down();
+        mc.move_down();
+        mc.move_down();
+        mc.move_down();
+        mc.move_down();
+        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("file5.txt"));
+    }
+
+    #[test]
+    fn toggle_select_adds_and_removes() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("item.txt"), b"x").unwrap();
+        let mut mc = MillerColumns::new(dir.path());
+
+        mc.toggle_select();
+        assert!(mc.selected_paths().contains(&dir.path().join("item.txt")));
+
+        mc.toggle_select();
+        assert!(!mc.selected_paths().contains(&dir.path().join("item.txt")));
+    }
+
+    #[test]
+    fn navigate_down_pushes_column_for_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let subdir = dir.path().join("inner");
+        fs::create_dir_all(&subdir).unwrap();
+        fs::write(subdir.join("deep.txt"), b"d").unwrap();
+        fs::write(dir.path().join("top.txt"), b"t").unwrap();
+
+        let mut mc = MillerColumns::new(dir.path());
+        assert_eq!(mc.current_path(), dir.path());
+
+        mc.navigate_down();
+        assert_eq!(mc.current_path(), subdir);
+    }
+
+    #[test]
+    fn navigate_down_ignores_files() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("plain.txt"), b"p").unwrap();
+
+        let mut mc = MillerColumns::new(dir.path());
+        assert_eq!(mc.current_path(), dir.path());
+        mc.navigate_down();
+        assert_eq!(mc.current_path(), dir.path());
+    }
+
+    #[test]
+    fn navigate_up_pops_but_not_below_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let subdir = dir.path().join("sub");
+        fs::create_dir_all(&subdir).unwrap();
+        fs::write(dir.path().join("a.txt"), b"a").unwrap();
+
+        let mut mc = MillerColumns::new(dir.path());
+        mc.navigate_down();
+        assert_eq!(mc.current_path(), subdir);
+
+        mc.navigate_up();
+        assert_eq!(mc.current_path(), dir.path());
+
+        mc.navigate_up();
+        assert_eq!(mc.current_path(), dir.path());
+    }
+
+    #[test]
+    fn current_path_returns_last_column_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let subdir = dir.path().join("child");
+        fs::create_dir_all(&subdir).unwrap();
+
+        let mut mc = MillerColumns::new(dir.path());
+        assert_eq!(mc.current_path(), dir.path());
+        mc.navigate_down();
+        assert_eq!(mc.current_path(), subdir);
+    }
+
+    #[test]
+    fn current_cursor_path_returns_entry_path() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("aaa.txt"), b"a").unwrap();
+        fs::write(dir.path().join("bbb.txt"), b"b").unwrap();
+
+        let mut mc = MillerColumns::new(dir.path());
+        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("aaa.txt"));
+        mc.move_down();
+        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("bbb.txt"));
+    }
+}
