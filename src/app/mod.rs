@@ -3,7 +3,7 @@ use color_eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +49,10 @@ pub fn roost_dir() -> PathBuf {
                 .expect("could not determine home directory")
                 .join(".roost")
         })
+}
+
+pub fn profile_dir(roost_dir: &Path, profile_name: &str) -> PathBuf {
+    roost_dir.join(profile_name)
 }
 
 pub fn shared_config_path(roost_dir: &PathBuf) -> PathBuf {

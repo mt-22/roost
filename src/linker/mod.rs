@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::app::{LocalAppConfig, SharedAppConfig};
+use crate::app::{LocalAppConfig, SharedAppConfig, profile_dir};
 
 const MISC_DIR_NAME: &str = "misc";
 const BACKUP_DIR_NAME: &str = ".backups";
@@ -153,8 +153,8 @@ pub fn ensure_links(
             }
         };
 
-        let profile_dir = roost_dir.join(profile_name);
-        let dest = app_dest(&profile_dir, app_name, app.is_dir);
+        let pdir = profile_dir(roost_dir, profile_name);
+        let dest = app_dest(&pdir, app_name, app.is_dir);
 
         // handle whatever is currently at origin
         if origin.is_symlink() {
@@ -215,7 +215,7 @@ pub fn switch_profile(
     }
 
     // remove symlinks for old profile
-    let old_dir = roost_dir.join(old_profile);
+    let old_dir = profile_dir(roost_dir, old_profile);
     if let Some(old) = config.profiles.get(old_profile) {
         for app_name in &old.apps {
             let app = match config.apps.get(app_name) {
@@ -239,7 +239,7 @@ pub fn switch_profile(
     }
 
     // create symlinks for new profile
-    let new_dir = roost_dir.join(new_profile);
+    let new_dir = profile_dir(roost_dir, new_profile);
     if let Some(new) = config.profiles.get(new_profile) {
         for app_name in &new.apps {
             let app = match config.apps.get(app_name) {

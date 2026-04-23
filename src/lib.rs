@@ -1,8 +1,11 @@
 pub mod app;
 pub mod data;
 pub mod git;
+pub mod init;
+pub mod init_tui;
 pub mod linker;
 pub mod logo;
+pub mod miller;
 pub mod os_detect;
 pub mod pager;
 pub mod scanner;
