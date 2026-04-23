@@ -2,7 +2,7 @@ use crate::os_detect::OsInfo;
 use color_eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
 };
 
@@ -10,11 +10,11 @@ use std::{
 pub struct SharedAppConfig {
     pub remote: Option<String>,
     #[serde(default)]
-    pub profiles: HashMap<String, Profile>,
+    pub profiles: BTreeMap<String, Profile>,
     #[serde(default)]
-    pub apps: HashMap<String, Application>,
+    pub apps: BTreeMap<String, Application>,
     #[serde(default)]
-    pub ignored: HashSet<String>,
+    pub ignored: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,22 +22,22 @@ pub struct LocalAppConfig {
     pub active_profile: String,
     pub os_info: OsInfo,
     #[serde(default)]
-    pub link_paths: HashMap<String, PathBuf>,
+    pub link_paths: BTreeMap<String, PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     #[serde(default)]
-    pub apps: HashSet<String>,
+    pub apps: BTreeSet<String>,
     #[serde(default)]
-    pub app_sources: HashMap<String, String>,
+    pub app_sources: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Application {
     pub primary_config: Option<PathBuf>,
     #[serde(default)]
-    pub on_profiles: HashSet<String>,
+    pub on_profiles: BTreeSet<String>,
     pub is_dir: bool,
 }
 

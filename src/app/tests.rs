@@ -1,8 +1,9 @@
 use super::*;
+use std::collections::{BTreeMap, BTreeSet};
 use tempfile::TempDir;
 
 fn make_shared_config() -> SharedAppConfig {
-    let mut apps = HashMap::new();
+    let mut apps = BTreeMap::new();
     apps.insert(
         "nvim".into(),
         Application {
@@ -20,12 +21,12 @@ fn make_shared_config() -> SharedAppConfig {
         },
     );
 
-    let mut profiles = HashMap::new();
+    let mut profiles = BTreeMap::new();
     profiles.insert(
         "laptop".into(),
         Profile {
             apps: ["nvim".into(), "git".into()].into(),
-            app_sources: HashMap::new(),
+            app_sources: BTreeMap::new(),
         },
     );
 
@@ -45,7 +46,7 @@ fn make_local_config() -> LocalAppConfig {
             arch: "aarch64".into(),
         },
         link_paths: {
-            let mut m = HashMap::new();
+            let mut m = BTreeMap::new();
             m.insert("nvim".into(), PathBuf::from("/Users/test/.config/nvim"));
             m
         },
@@ -92,9 +93,9 @@ fn local_config_round_trip() {
 fn empty_config_round_trip() {
     let config = SharedAppConfig {
         remote: None,
-        profiles: HashMap::new(),
-        apps: HashMap::new(),
-        ignored: HashSet::new(),
+        profiles: BTreeMap::new(),
+        apps: BTreeMap::new(),
+        ignored: BTreeSet::new(),
     };
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("roost.toml");
@@ -135,7 +136,7 @@ fn validate_rejects_cycle_in_app_sources() {
         "shared".into(),
         Profile {
             apps: ["nvim".into()].into(),
-            app_sources: HashMap::new(),
+            app_sources: BTreeMap::new(),
         },
     );
     config.profiles.get_mut("laptop").unwrap().app_sources.insert("nvim".into(), "shared".into());

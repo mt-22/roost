@@ -9,17 +9,17 @@ use crate::app::{LocalAppConfig, SharedAppConfig};
 const MISC_DIR_NAME: &str = "misc";
 const BACKUP_DIR_NAME: &str = ".backups";
 
+// move origin into roost, symlink origin back to roost
 pub fn ingest(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> Result<()> {
     if !origin.exists() {
         bail!("origin path does not exist: {}", origin.display());
     }
-    let meta = fs::symlink_metadata(origin)?;
 
-    if meta.is_symlink() {
+    if origin.is_symlink() {
         bail!("origin already a symlink: {}", origin.display());
     }
-    let backup_dest = roost_dir.join(BACKUP_DIR_NAME).join(app_name);
 
+    let backup_dest = roost_dir.join(BACKUP_DIR_NAME).join(app_name);
     fs::create_dir_all(roost_dir.join(BACKUP_DIR_NAME))?;
 
     if !is_dir {
@@ -27,19 +27,23 @@ pub fn ingest(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> 
     }
     let app_dest = app_dest(roost_dir, app_name, is_dir);
 
+    // backup before moving
     if origin.is_dir() {
         copy_dir_recursive(&origin, &backup_dest)?;
     } else {
         fs::copy(&origin, &backup_dest)?;
     }
 
+    // move origin -> roost dest
     fs::rename(&origin, &app_dest)?;
 
+    // symlink: origin -> roost dest
     create_symlink(&app_dest, &origin, is_dir)?;
 
     Ok(())
 }
 
+// resolve where an app lives within the roost directory
 pub fn app_dest(roost_dir: &Path, app_name: &str, is_dir: bool) -> PathBuf {
     if is_dir {
         roost_dir.join(app_name)
@@ -48,6 +52,7 @@ pub fn app_dest(roost_dir: &Path, app_name: &str, is_dir: bool) -> PathBuf {
     }
 }
 
+// create symlink at origin pointing to roost (for fresh setup from git pull)
 pub fn restore(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> Result<()> {
     let dest = app_dest(roost_dir, app_name, is_dir);
 
@@ -55,18 +60,19 @@ pub fn restore(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) ->
         bail!("app files not found in roost: {}", dest.display());
     }
 
-    if let Ok(meta) = fs::symlink_metadata(origin) {
-        if meta.is_symlink() {
-            let target = fs::read_link(origin)?;
-            if target == dest {
-                return Ok(());
-            }
-            bail!(
-                "origin exists as symlink to wrong target: {} -> {}",
-                origin.display(),
-                target.display()
-            );
+    if origin.is_symlink() {
+        let target = fs::read_link(origin)?;
+        if target == dest {
+            return Ok(());
         }
+        bail!(
+            "origin exists as symlink to wrong target: {} -> {}",
+            origin.display(),
+            target.display()
+        );
+    }
+
+    if origin.exists() {
         bail!(
             "origin exists as real file/dir (use ingest instead): {}",
             origin.display()
@@ -81,11 +87,11 @@ pub fn restore(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) ->
     Ok(())
 }
 
+// reverse of ingest: remove symlink, move files back to origin
 pub fn unlink(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> Result<()> {
     let dest = app_dest(roost_dir, app_name, is_dir);
 
-    let meta = fs::symlink_metadata(origin)?;
-    if !meta.is_symlink() {
+    if !origin.is_symlink() {
         bail!("origin is not a symlink: {}", origin.display());
     }
 
@@ -101,10 +107,12 @@ pub fn unlink(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> 
 
     fs::remove_file(origin)?;
 
+    // move roost files back
     if dest.exists() {
         fs::rename(&dest, origin)?;
     }
 
+    // clean up empty misc/ dir
     if !is_dir {
         let misc = roost_dir.join(MISC_DIR_NAME);
         if misc.exists() && fs::read_dir(&misc)?.next().is_none() {
@@ -115,6 +123,7 @@ pub fn unlink(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> 
     Ok(())
 }
 
+// verify all configured symlinks exist, create missing ones, back up conflicts
 pub fn ensure_links(
     config: &SharedAppConfig,
     local: &LocalAppConfig,
@@ -147,37 +156,36 @@ pub fn ensure_links(
         let profile_dir = roost_dir.join(profile_name);
         let dest = app_dest(&profile_dir, app_name, app.is_dir);
 
-        match fs::symlink_metadata(origin) {
-            Ok(meta) if meta.is_symlink() => {
-                let target = fs::read_link(origin)?;
-                if target == dest {
-                    continue;
-                }
-                let backup = roost_dir
-                    .join(BACKUP_DIR_NAME)
-                    .join(format!("conflict-{}", app_name));
-                fs::create_dir_all(roost_dir.join(BACKUP_DIR_NAME))?;
-                fs::rename(origin, &backup)?;
-                actions.push(format!(
-                    "BACKED UP conflicting symlink: {} -> {}",
-                    origin.display(),
-                    backup.display()
-                ));
+        // handle whatever is currently at origin
+        if origin.is_symlink() {
+            let target = fs::read_link(origin)?;
+            if target == dest {
+                continue; // already correct
             }
-            Ok(_) => {
-                let backup = roost_dir
-                    .join(BACKUP_DIR_NAME)
-                    .join(format!("conflict-{}", app_name));
-                fs::create_dir_all(roost_dir.join(BACKUP_DIR_NAME))?;
-                copy_dir_recursive(origin, &backup)?;
-                fs::remove_dir_all(origin)?;
-                actions.push(format!(
-                    "BACKED UP conflicting path: {} -> {}",
-                    origin.display(),
-                    backup.display()
-                ));
-            }
-            Err(_) => {}
+            // symlink points elsewhere, back it up
+            let backup = roost_dir
+                .join(BACKUP_DIR_NAME)
+                .join(format!("conflict-{}", app_name));
+            fs::create_dir_all(roost_dir.join(BACKUP_DIR_NAME))?;
+            fs::rename(origin, &backup)?;
+            actions.push(format!(
+                "BACKED UP conflicting symlink: {} -> {}",
+                origin.display(),
+                backup.display()
+            ));
+        } else if origin.exists() {
+            // real file/dir at origin, back it up
+            let backup = roost_dir
+                .join(BACKUP_DIR_NAME)
+                .join(format!("conflict-{}", app_name));
+            fs::create_dir_all(roost_dir.join(BACKUP_DIR_NAME))?;
+            copy_dir_recursive(origin, &backup)?;
+            fs::remove_dir_all(origin)?;
+            actions.push(format!(
+                "BACKED UP conflicting path: {} -> {}",
+                origin.display(),
+                backup.display()
+            ));
         }
 
         if let Some(parent) = origin.parent() {
@@ -194,6 +202,7 @@ pub fn ensure_links(
     Ok(actions)
 }
 
+// remove old profile symlinks, create new profile symlinks
 pub fn switch_profile(
     old_profile: &str,
     new_profile: &str,
@@ -205,6 +214,7 @@ pub fn switch_profile(
         bail!("target profile '{}' does not exist", new_profile);
     }
 
+    // remove symlinks for old profile
     let old_dir = roost_dir.join(old_profile);
     if let Some(old) = config.profiles.get(old_profile) {
         for app_name in &old.apps {
@@ -218,18 +228,17 @@ pub fn switch_profile(
             };
             let dest = app_dest(&old_dir, app_name, app.is_dir);
 
-            if let Ok(meta) = fs::symlink_metadata(&origin) {
-                if meta.is_symlink() {
-                    if let Ok(target) = fs::read_link(&origin) {
-                        if target == dest {
-                            let _ = fs::remove_file(&origin);
-                        }
+            if origin.is_symlink() {
+                if let Ok(target) = fs::read_link(&origin) {
+                    if target == dest {
+                        let _ = fs::remove_file(&origin);
                     }
                 }
             }
         }
     }
 
+    // create symlinks for new profile
     let new_dir = roost_dir.join(new_profile);
     if let Some(new) = config.profiles.get(new_profile) {
         for app_name in &new.apps {
@@ -256,6 +265,7 @@ pub fn switch_profile(
     Ok(())
 }
 
+// cross-profile symlink chain (zero-copy): target -> source
 pub fn import_from(
     app_name: &str,
     source_profile: &str,
@@ -271,11 +281,19 @@ pub fn import_from(
     if target_dir.exists() {
         bail!("target already exists: {}", target_dir.display());
     }
+    if source_dir.is_symlink() {
+        bail!(
+            "{} in profile {} is a symlink (must import from source file)",
+            source_dir.display(),
+            source_profile
+        );
+    }
 
     create_symlink(&source_dir, &target_dir, true)?;
     Ok(())
 }
 
+// independent copy of app files into another profile
 pub fn copy_to(
     app_name: &str,
     source_profile: &str,
@@ -297,6 +315,7 @@ pub fn copy_to(
     Ok(())
 }
 
+// recursive directory copy
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
@@ -312,6 +331,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+// cross-platform symlink creation
 #[cfg(unix)]
 pub fn create_symlink(target: &Path, link: &Path, _is_dir: bool) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
