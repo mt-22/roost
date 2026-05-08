@@ -6,7 +6,7 @@ use std::{
 
 use crate::app::{LocalAppConfig, SharedAppConfig, profile_dir};
 
-const MISC_DIR_NAME: &str = "misc";
+pub const MISC_DIR_NAME: &str = "misc";
 const BACKUP_DIR_NAME: &str = ".backups";
 
 // move origin into roost, symlink origin back to roost
@@ -329,6 +329,123 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub enum LinkStatus {
+    Ok {
+        app: String,
+        origin: PathBuf,
+        target: PathBuf,
+    },
+    Missing {
+        app: String,
+        origin: PathBuf,
+        target: PathBuf,
+    },
+    Broken {
+        app: String,
+        origin: PathBuf,
+        actual: PathBuf,
+        expected: PathBuf,
+    },
+    Conflict {
+        app: String,
+        origin: PathBuf,
+    },
+    NoLinkPath {
+        app: String,
+    },
+}
+
+pub fn check_links(
+    config: &SharedAppConfig,
+    local: &LocalAppConfig,
+    roost_dir: &Path,
+) -> Result<Vec<LinkStatus>> {
+    let profile_name = &local.active_profile;
+    let profile = match config.profiles.get(profile_name) {
+        Some(p) => p,
+        None => return Ok(Vec::new()),
+    };
+    let pdir = crate::app::profile_dir(roost_dir, profile_name);
+
+    let mut results = Vec::new();
+    for app_name in &profile.apps {
+        let app_entry = match config.apps.get(app_name) {
+            Some(a) => a,
+            None => continue,
+        };
+        let origin = match local.link_paths.get(app_name) {
+            Some(p) => p.clone(),
+            None => {
+                results.push(LinkStatus::NoLinkPath { app: app_name.clone() });
+                continue;
+            }
+        };
+        let dest = app_dest(&pdir, app_name, app_entry.is_dir);
+
+        if !origin.exists() {
+            results.push(LinkStatus::Missing { app: app_name.clone(), origin, target: dest });
+        } else if origin.is_symlink() {
+            match fs::read_link(&origin) {
+                Ok(target) if target == dest => {
+                    results.push(LinkStatus::Ok { app: app_name.clone(), origin, target: dest });
+                }
+                Ok(target) => {
+                    results.push(LinkStatus::Broken { app: app_name.clone(), origin: origin.clone(), actual: target, expected: dest });
+                }
+                Err(_) => {
+                    results.push(LinkStatus::Broken { app: app_name.clone(), origin: origin.clone(), actual: PathBuf::new(), expected: dest });
+                }
+            }
+        } else {
+            results.push(LinkStatus::Conflict { app: app_name.clone(), origin });
+        }
+    }
+    Ok(results)
+}
+
+#[derive(Debug, Clone)]
+pub struct Orphan {
+    pub profile: String,
+    pub name: String,
+    pub is_dir: bool,
+    pub path: PathBuf,
+}
+
+pub fn find_orphans(
+    config: &SharedAppConfig,
+    roost_dir: &Path,
+) -> Result<Vec<Orphan>> {
+    let mut orphans = Vec::new();
+    for (prof_name, _) in &config.profiles {
+        let pdir = crate::app::profile_dir(roost_dir, prof_name);
+        if !pdir.exists() {
+            continue;
+        }
+        for entry in (fs::read_dir(&pdir)?).flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == MISC_DIR_NAME || name.starts_with('.') {
+                continue;
+            }
+            if !config.apps.contains_key(&name) {
+                let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                orphans.push(Orphan { profile: prof_name.clone(), name, is_dir, path: entry.path() });
+            }
+        }
+        let misc_dir = pdir.join(MISC_DIR_NAME);
+        if misc_dir.exists() {
+            for entry in (fs::read_dir(&misc_dir)?).flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !config.apps.contains_key(&name) {
+                    let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                    orphans.push(Orphan { profile: prof_name.clone(), name, is_dir, path: entry.path() });
+                }
+            }
+        }
+    }
+    Ok(orphans)
 }
 
 // cross-platform symlink creation
