@@ -67,11 +67,13 @@ fn add_file_moves_into_roost() {
         .success();
 
     assert!(test_file.is_symlink());
-    assert!(roost_dir
-        .join("default")
-        .join("misc")
-        .join("testconfig.toml")
-        .exists());
+    assert!(
+        roost_dir
+            .join("default")
+            .join("misc")
+            .join("testconfig.toml")
+            .exists()
+    );
 }
 
 #[test]

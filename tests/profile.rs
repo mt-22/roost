@@ -4,11 +4,7 @@ use tempfile::TempDir;
 
 fn setup_roost(dir: &std::path::Path) {
     std::fs::create_dir_all(dir).unwrap();
-    std::fs::write(
-        dir.join("roost.toml"),
-        "[profiles.default]\napps = []\n",
-    )
-    .unwrap();
+    std::fs::write(dir.join("roost.toml"), "[profiles.default]\napps = []\n").unwrap();
     std::fs::write(
         dir.join("local.toml"),
         "active_profile = \"default\"\n\n[os_info]\nos = \"test\"\narch = \"x86_64\"\n\n[link_paths]\n",
@@ -193,8 +189,7 @@ fn profile_rename_works() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("renamed")
-                .and(predicate::str::contains("testprofile").not()),
+            predicate::str::contains("renamed").and(predicate::str::contains("testprofile").not()),
         );
 }
 
