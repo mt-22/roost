@@ -1,0 +1,47 @@
+# Directories and files commonly found in $HOME or ~/.config that are
+# NOT application configurations and should be ignored by the scanner.
+# One name per line, lowercase. Lines starting with # are comments.
+
+# ── User data directories ──
+documents
+pictures
+music
+videos
+downloads
+desktop
+movies
+library
+
+# ── Application bundles / program files ──
+applications
+program files
+program files (x86)
+
+# ── Caches and temporary data ──
+caches
+logs
+cache
+
+# ── Browser / electron app data that aren't configs ──
+google-chrome
+chromium
+firefox
+discord
+spotify
+slack
+zoom
+
+# ── System / non-config directories ──
+trash
+.trash
+recents
+icloud
+
+# ── Common non-config files ──
+.bash_history
+.zsh_history
+.lesshst
+.mysql_history
+.sqlite_history
+.viminfo
+.wget-hsts

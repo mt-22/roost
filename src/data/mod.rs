@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 const KNOWN_APPS: &str = include_str!("known_apps.txt");
 const KNOWN_DOTFILES: &str = include_str!("known_dotfiles.txt");
+const KNOWN_NON_CONFIGS: &str = include_str!("known_non_configs.txt");
 
 fn parse_list(raw: &'static str) -> HashSet<&'static str> {
     raw.lines()
@@ -17,6 +18,10 @@ pub fn known_apps() -> HashSet<&'static str> {
 
 pub fn known_dotfiles() -> HashSet<&'static str> {
     parse_list(KNOWN_DOTFILES)
+}
+
+pub fn known_non_configs() -> HashSet<&'static str> {
+    parse_list(KNOWN_NON_CONFIGS)
 }
 
 pub const DEFAULT_IGNORE_PATTERNS: &[&str] = &[
@@ -56,6 +61,14 @@ mod tests {
         assert!(!files.is_empty());
         assert!(files.contains(".zshrc"));
         assert!(files.contains(".gitconfig"));
+    }
+
+    #[test]
+    fn known_non_configs_not_empty() {
+        let non_configs = known_non_configs();
+        assert!(!non_configs.is_empty());
+        assert!(non_configs.contains("documents"));
+        assert!(non_configs.contains("caches"));
     }
 
     #[test]

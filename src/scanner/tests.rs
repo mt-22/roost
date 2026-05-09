@@ -108,6 +108,24 @@ fn scan_directory_respects_ignores() {
 }
 
 #[test]
+fn scan_directory_skips_known_non_configs() {
+    let tmp = TempDir::new().unwrap();
+    create_dir(tmp.path(), "Documents");
+    create_dir(tmp.path(), "Pictures");
+    create_dir(tmp.path(), "caches");
+    create_dir(tmp.path(), "nvim");
+
+    let ignored = HashSet::new();
+    let results = scan_directory(tmp.path(), &ignored);
+
+    let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+    assert!(!names.contains(&"Documents"));
+    assert!(!names.contains(&"Pictures"));
+    assert!(!names.contains(&"caches"));
+    assert!(names.contains(&"nvim"));
+}
+
+#[test]
 fn scan_directory_sorted_by_confidence() {
     let tmp = TempDir::new().unwrap();
     create_file(tmp.path(), ".zshrc");

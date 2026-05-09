@@ -72,6 +72,12 @@ fn is_config_file(name: &str) -> bool {
         .any(|ext| lower.ends_with(&format!(".{}", ext)))
 }
 
+fn is_known_non_config(name: &str) -> bool {
+    let known_non_configs = crate::data::known_non_configs();
+    let lower = name.to_lowercase();
+    known_non_configs.contains(lower.as_str())
+}
+
 fn matches_ignore(name: &str, ignored: &HashSet<String>) -> bool {
     if ignored.contains(name) {
         return true;
@@ -95,6 +101,9 @@ pub fn scan_directory(dir: &Path, ignored: &HashSet<String>) -> Vec<DiscoveredIt
         let name = entry.file_name().to_string_lossy().to_string();
 
         if name == ".DS_Store" {
+            continue;
+        }
+        if is_known_non_config(&name) {
             continue;
         }
         if matches_ignore(&name, ignored) {
