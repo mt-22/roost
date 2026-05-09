@@ -62,7 +62,12 @@ impl App {
                 selected_indices.insert(i);
             }
         }
-        let miller = MillerColumns::new(root_path);
+        let mut miller = MillerColumns::new(root_path);
+        for &i in &selected_indices {
+            if let Some(item) = scan_items.get(i) {
+                miller.select_path(item.path.clone());
+            }
+        }
         Self {
             tab: Tab::ScanResults,
             scan_items,
@@ -113,7 +118,7 @@ impl App {
     }
 
     fn selected_count(&self) -> usize {
-        self.selected_indices.len() + self.miller.selected_paths().len()
+        self.selected_items().len()
     }
 
     fn is_filter_active(&self) -> bool {
@@ -205,8 +210,15 @@ impl App {
         if self.scan_items.is_empty() {
             return;
         }
-        if !self.selected_indices.remove(&idx) {
+        if self.selected_indices.remove(&idx) {
+            if let Some(item) = self.scan_items.get(idx) {
+                self.miller.deselect_path(&item.path);
+            }
+        } else {
             self.selected_indices.insert(idx);
+            if let Some(item) = self.scan_items.get(idx) {
+                self.miller.select_path(item.path.clone());
+            }
         }
     }
 

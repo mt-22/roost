@@ -144,6 +144,14 @@ impl MillerColumns {
         }
     }
 
+    pub fn select_path(&mut self, path: PathBuf) {
+        self.selected.insert(path);
+    }
+
+    pub fn deselect_path(&mut self, path: &Path) {
+        self.selected.remove(path);
+    }
+
     pub fn toggle_select(&mut self) {
         let cursor = self.real_cursor();
         let path = {
