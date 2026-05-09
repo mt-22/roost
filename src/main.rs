@@ -1,7 +1,6 @@
 use clap::{CommandFactory, Parser};
 use color_eyre::{Result, eyre::bail};
-use console::style;
-use dialoguer::theme::ColorfulTheme;
+use dialoguer::{console::style, theme::ColorfulTheme};
 use roost::cli::{Cli, Commands, ProfileAction, ProfileCmd};
 use roost::{app, git, init, linker, pager};
 use std::collections::{BTreeMap, BTreeSet};

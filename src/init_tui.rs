@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     io::{self, Stdout},
     path::Path,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use color_eyre::Result;
@@ -15,16 +16,28 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Tabs},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Tabs},
 };
 
 use crate::miller::MillerColumns;
 use crate::scanner::{DiscoveredItem, ItemType};
+use crate::tui::confirm::{ConfirmAction, ConfirmDialog, render_confirm_dialog};
+use crate::tui::search::FuzzyEngine;
+
+static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     ScanResults,
     Browse,
+}
+
+/// Result from the selection TUI.
+pub enum TuiResult {
+    /// User confirmed with selections.
+    Selected(Vec<DiscoveredItem>),
+    /// User aborted (Esc, q, or Ctrl+C). No state should be saved.
+    Aborted,
 }
 
 struct App {
@@ -34,6 +47,10 @@ struct App {
     scan_cursor: usize,
     scan_scroll: usize,
     miller: MillerColumns,
+    search: FuzzyEngine,
+    in_search: bool,
+    pre_search_scan_cursor: usize,
+    confirm_dialog: Option<ConfirmDialog>,
 }
 
 impl App {
@@ -53,6 +70,10 @@ impl App {
             scan_cursor: 0,
             scan_scroll: 0,
             miller,
+            search: FuzzyEngine::new(),
+            in_search: false,
+            pre_search_scan_cursor: 0,
+            confirm_dialog: None,
         }
     }
 
@@ -91,7 +112,79 @@ impl App {
         result
     }
 
-    fn scan_cursor(&mut self) {
+    fn selected_count(&self) -> usize {
+        self.selected_indices.len() + self.miller.selected_paths().len()
+    }
+
+    fn is_filter_active(&self) -> bool {
+        !self.search.query().is_empty()
+    }
+
+    fn activate_search(&mut self) {
+        self.clear_search();
+        self.in_search = true;
+        self.pre_search_scan_cursor = self.scan_cursor;
+        self.apply_search_filter();
+    }
+
+    fn deactivate_search(&mut self) {
+        self.in_search = false;
+    }
+
+    fn clear_search(&mut self) {
+        self.search.clear();
+        self.miller.clear_filter();
+        self.scan_cursor = self.pre_search_scan_cursor;
+    }
+
+    fn search_up(&mut self) {
+        self.search.move_up();
+        self.sync_cursor_from_search();
+    }
+
+    fn search_down(&mut self) {
+        self.search.move_down();
+        self.sync_cursor_from_search();
+    }
+
+    fn sync_cursor_from_search(&mut self) {
+        match self.tab {
+            Tab::ScanResults => {
+                if let Some(idx) = self.search.selected_index() {
+                    self.scan_cursor = idx;
+                }
+            }
+            Tab::Browse => {
+                if let Some(idx) = self.search.selected_index() {
+                    self.miller.sync_filtered_cursor(idx);
+                }
+            }
+        }
+    }
+
+    fn apply_search_filter(&mut self) {
+        match self.tab {
+            Tab::ScanResults => {
+                let names: Vec<String> = self.scan_items.iter().map(|i| i.name.clone()).collect();
+                self.search.filter(&names);
+                self.sync_cursor_from_search();
+            }
+            Tab::Browse => {
+                let names: Vec<String> = self
+                    .miller
+                    .current_entries()
+                    .iter()
+                    .map(|e| e.file_name().to_string_lossy().to_string())
+                    .collect();
+                self.search.filter(&names);
+                let indices: Vec<usize> = self.search.matches().iter().map(|m| m.index).collect();
+                self.miller.set_filter(indices);
+                self.sync_cursor_from_search();
+            }
+        }
+    }
+
+    fn scan_up(&mut self) {
         if self.scan_cursor > 0 {
             self.scan_cursor -= 1;
         }
@@ -104,22 +197,36 @@ impl App {
     }
 
     fn toggle_scan(&mut self) {
+        let idx = if self.is_filter_active() {
+            self.search.selected_index().unwrap_or(self.scan_cursor)
+        } else {
+            self.scan_cursor
+        };
         if self.scan_items.is_empty() {
             return;
         }
-        if !self.selected_indices.remove(&self.scan_cursor) {
-            self.selected_indices.insert(self.scan_cursor);
+        if !self.selected_indices.remove(&idx) {
+            self.selected_indices.insert(idx);
         }
     }
 
     fn visible_range(&self, height: usize) -> (usize, usize) {
         let visible = if height == 0 { 1 } else { height };
-        let total = self.scan_items.len();
+        let total = if self.is_filter_active() {
+            self.search.match_count()
+        } else {
+            self.scan_items.len()
+        };
         if total == 0 {
             return (0, 0);
         }
-        let scroll = if self.scan_cursor >= visible {
-            self.scan_cursor - visible + 1
+        let cursor = if self.is_filter_active() {
+            self.search.cursor()
+        } else {
+            self.scan_cursor
+        };
+        let scroll = if cursor >= visible {
+            cursor - visible + 1
         } else {
             0
         };
@@ -144,14 +251,31 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result
     Ok(())
 }
 
-pub fn run_selection_tui(
-    scan_items: Vec<DiscoveredItem>,
-    root_path: &Path,
-) -> Result<Vec<DiscoveredItem>> {
+pub fn run_selection_tui(scan_items: Vec<DiscoveredItem>, root_path: &Path) -> Result<TuiResult> {
     let mut terminal = setup_terminal()?;
+
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = crossterm::execute!(std::io::stdout(), LeaveAlternateScreen);
+        let _ = disable_raw_mode();
+        original_hook(info);
+    }));
+
+    SHOULD_EXIT.store(false, Ordering::SeqCst);
+
+    ctrlc::set_handler(|| {
+        SHOULD_EXIT.store(true, Ordering::SeqCst);
+    })?;
+
     let result = run_app(&mut terminal, scan_items, root_path);
+
     restore_terminal(&mut terminal)?;
-    result
+
+    match result {
+        Ok(items) => Ok(TuiResult::Selected(items)),
+        Err(e) if e.to_string() == "aborted" => Ok(TuiResult::Aborted),
+        Err(e) => Err(e),
+    }
 }
 
 fn run_app(
@@ -163,17 +287,29 @@ fn run_app(
 
     loop {
         terminal.draw(|f| {
-            let chunks = Layout::vertical([
+            let main_chunks = Layout::vertical([
                 Constraint::Length(1),
                 Constraint::Min(1),
                 Constraint::Length(1),
             ])
             .split(f.area());
 
-            render_tab_bar(f, chunks[0], app.tab);
-            render_content(f, chunks[1], &mut app);
-            render_key_hints(f, chunks[2]);
+            render_tab_bar(f, main_chunks[0], app.tab);
+            render_content_with_panel(f, main_chunks[1], &mut app);
+            render_status_bar(f, main_chunks[2], &app);
+
+            if app.in_search {
+                render_search_overlay(f, &app);
+            }
+
+            if let Some(ref dialog) = app.confirm_dialog {
+                render_confirm_dialog(f, dialog);
+            }
         })?;
+
+        if SHOULD_EXIT.load(Ordering::Relaxed) {
+            return Err(color_eyre::eyre::eyre!("aborted"));
+        }
 
         if event::poll(std::time::Duration::from_millis(100))?
             && let Event::Key(key) = event::read()?
@@ -181,40 +317,151 @@ fn run_app(
             if key.kind != KeyEventKind::Press {
                 continue;
             }
+
+            // Check if a confirmation dialog is active
+            if let Some(ref mut dialog) = app.confirm_dialog {
+                match key.code {
+                    KeyCode::Char('y') => dialog.confirm(),
+                    KeyCode::Char('n') | KeyCode::Esc => dialog.cancel(),
+                    _ => {}
+                }
+                continue;
+            }
+
+            if app.in_search {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Enter => {
+                        app.deactivate_search();
+                        continue;
+                    }
+                    KeyCode::Char(c) => {
+                        app.search.push_char(c);
+                        app.apply_search_filter();
+                        continue;
+                    }
+                    KeyCode::Backspace => {
+                        app.search.backspace();
+                        if app.search.query().is_empty() {
+                            app.clear_search();
+                        } else {
+                            app.apply_search_filter();
+                        }
+                        continue;
+                    }
+                    KeyCode::Up => {
+                        app.search_up();
+                        continue;
+                    }
+                    KeyCode::Down => {
+                        app.search_down();
+                        continue;
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+
             match key.code {
                 KeyCode::Tab => {
                     app.tab = match app.tab {
                         Tab::ScanResults => Tab::Browse,
                         Tab::Browse => Tab::ScanResults,
                     };
+                    app.clear_search();
                 }
                 KeyCode::Enter => {
-                    return Ok(app.selected_items());
+                    let count = app.selected_count();
+                    if count == 0 {
+                        app.confirm_dialog = Some(ConfirmDialog::affirmative(
+                            "Confirm",
+                            "No apps selected. Exit without selecting any?",
+                        ));
+                    } else {
+                        app.confirm_dialog = Some(ConfirmDialog::affirmative(
+                            "Confirm",
+                            &format!(
+                                "Ingest {} selected app{} and finish?",
+                                count,
+                                if count == 1 { "" } else { "s" }
+                            ),
+                        ));
+                    }
                 }
                 KeyCode::Esc | KeyCode::Char('q') => {
-                    return Ok(Vec::new());
+                    let count = app.selected_count();
+                    if count == 0 {
+                        return Err(color_eyre::eyre::eyre!("aborted"));
+                    } else {
+                        app.confirm_dialog = Some(ConfirmDialog::destructive(
+                            "Discard",
+                            &format!(
+                                "Discard {} selected app{} and exit?",
+                                count,
+                                if count == 1 { "" } else { "s" }
+                            ),
+                        ));
+                    }
                 }
                 KeyCode::Char(' ') => match app.tab {
                     Tab::ScanResults => app.toggle_scan(),
                     Tab::Browse => app.miller.toggle_select(),
                 },
-                KeyCode::Up | KeyCode::Char('k') => match app.tab {
-                    Tab::ScanResults => app.scan_cursor(),
-                    Tab::Browse => app.miller.move_up(),
-                },
-                KeyCode::Down | KeyCode::Char('j') => match app.tab {
-                    Tab::ScanResults => app.scan_down(),
-                    Tab::Browse => app.miller.move_down(),
-                },
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if app.is_filter_active() {
+                        app.search_up();
+                    } else {
+                        match app.tab {
+                            Tab::ScanResults => app.scan_up(),
+                            Tab::Browse => app.miller.move_up(),
+                        }
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if app.is_filter_active() {
+                        app.search_down();
+                    } else {
+                        match app.tab {
+                            Tab::ScanResults => app.scan_down(),
+                            Tab::Browse => app.miller.move_down(),
+                        }
+                    }
+                }
                 KeyCode::Left | KeyCode::Char('h') => match app.tab {
                     Tab::ScanResults => {}
-                    Tab::Browse => app.miller.navigate_up(),
+                    Tab::Browse => {
+                        app.miller.navigate_up();
+                        app.clear_search();
+                    }
                 },
                 KeyCode::Right | KeyCode::Char('l') => match app.tab {
                     Tab::ScanResults => {}
-                    Tab::Browse => app.miller.navigate_down(),
+                    Tab::Browse => {
+                        app.miller.navigate_down();
+                        app.clear_search();
+                    }
                 },
+                KeyCode::Char('/') => {
+                    app.activate_search();
+                }
                 _ => {}
+            }
+        }
+
+        // Handle confirmation dialog result
+        if let Some(dialog) = app.confirm_dialog.take() {
+            if let Some(confirmed) = dialog.confirmed {
+                if confirmed {
+                    match dialog.action {
+                        ConfirmAction::Confirm => return Ok(app.selected_items()),
+                        ConfirmAction::Discard => return Err(color_eyre::eyre::eyre!("aborted")),
+                    }
+                } else {
+                    // Dialog was cancelled, continue
+                    continue;
+                }
+            } else {
+                // Dialog still active, put it back
+                app.confirm_dialog = Some(dialog);
             }
         }
     }
@@ -249,18 +496,24 @@ fn render_tab_bar(frame: &mut ratatui::Frame, area: Rect, active: Tab) {
     frame.render_widget(tabs, area);
 }
 
-fn render_content(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
+fn render_content_with_panel(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
+    let chunks =
+        Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)]).split(area);
+
     match app.tab {
-        Tab::ScanResults => render_scan_list(frame, area, app),
+        Tab::ScanResults => render_scan_list(frame, chunks[0], app),
         Tab::Browse => {
-            frame.render_widget(&app.miller, area);
+            frame.render_widget(&app.miller, chunks[0]);
         }
     }
+
+    render_selected_panel(frame, chunks[1], app);
 }
 
 fn render_scan_list(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let block = Block::default()
         .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
         .title(" Scan Results ");
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -273,13 +526,31 @@ fn render_scan_list(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let (scroll, end) = app.visible_range(visible);
     app.scan_scroll = scroll;
 
-    let items: Vec<ListItem> = (scroll..end)
-        .map(|i| {
+    let indices: Vec<usize> = if app.is_filter_active() {
+        app.search
+            .matches()
+            .iter()
+            .map(|m| m.index)
+            .skip(scroll)
+            .take(end - scroll)
+            .collect()
+    } else {
+        (scroll..end).collect()
+    };
+
+    let items: Vec<ListItem> = indices
+        .iter()
+        .enumerate()
+        .map(|(vi, &i)| {
             let item = &app.scan_items[i];
             let selected = app.selected_indices.contains(&i);
-            let cursor = i == app.scan_cursor;
+            let cursor = if app.is_filter_active() {
+                vi == app.search.cursor().saturating_sub(scroll)
+            } else {
+                i == app.scan_cursor
+            };
 
-            let check = if selected { "\u{2611}" } else { "\u{2610}" };
+            let check = if selected { "✓" } else { " " };
             let type_marker = match item.item_type {
                 ItemType::Dir => "Dir ",
                 ItemType::File => "File",
@@ -292,7 +563,7 @@ fn render_scan_list(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
                     format!(" {check} "),
                     if selected {
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(Color::Green)
                             .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default().fg(Color::DarkGray)
@@ -323,7 +594,9 @@ fn render_scan_list(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
             ]);
 
             let style = if cursor {
-                Style::default().bg(Color::DarkGray)
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -334,12 +607,178 @@ fn render_scan_list(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
 
     let list = List::new(items);
     let mut state = ListState::default();
-    state.select(if app.scan_items.is_empty() {
+    let select_idx = if app.scan_items.is_empty() {
         None
+    } else if app.is_filter_active() {
+        let rel_cursor = app.search.cursor().saturating_sub(scroll);
+        Some(rel_cursor)
     } else {
         Some(app.scan_cursor.saturating_sub(scroll))
-    });
+    };
+    state.select(select_idx);
     frame.render_stateful_widget(list, inner, &mut state);
+}
+
+fn render_selected_panel(frame: &mut ratatui::Frame, area: Rect, app: &App) {
+    let count = app.selected_count();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(format!(" Managed ({}) ", count));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let items = app.selected_items();
+    if items.is_empty() {
+        if inner.height > 0 && inner.width > 4 {
+            let hint = Span::styled(" (no apps selected) ", Style::default().fg(Color::DarkGray));
+            frame.render_widget(ratatui::widgets::Paragraph::new(Line::from(hint)), inner);
+        }
+        return;
+    }
+
+    let visible = inner.height as usize;
+    let lines: Vec<Line> = items
+        .iter()
+        .take(visible)
+        .map(|item| {
+            Line::from(vec![Span::styled(
+                format!(" ● {}", truncate_str(&item.name, inner.width as usize - 3)),
+                Style::default().fg(Color::White),
+            )])
+        })
+        .collect();
+
+    let paragraph = ratatui::widgets::Paragraph::new(lines);
+    frame.render_widget(paragraph, inner);
+}
+
+fn render_search_overlay(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let popup_width = 40u16.min(area.width.saturating_sub(4)).max(20);
+    let popup_height = 3u16.min(area.height.saturating_sub(4)).max(3);
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(" Search ");
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let query = app.search.query();
+    let match_count = app.search.match_count();
+    let hint = if query.is_empty() {
+        "all items".to_string()
+    } else if match_count == 0 {
+        "no matches".to_string()
+    } else if match_count == 1 {
+        "1 match".to_string()
+    } else {
+        format!("{} matches", match_count)
+    };
+
+    let line = Line::from(vec![
+        Span::styled("› ", Style::default().fg(Color::Yellow)),
+        Span::styled(query, Style::default().fg(Color::White)),
+        Span::styled("_", Style::default().fg(Color::Yellow)),
+    ]);
+    frame.render_widget(
+        ratatui::widgets::Paragraph::new(line),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+
+    if inner.height > 1 {
+        let hint_line = Line::from(Span::styled(
+            format!("  {}", hint),
+            Style::default().fg(Color::DarkGray),
+        ));
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(hint_line),
+            Rect::new(inner.x, inner.y + 1, inner.width, 1),
+        );
+    }
+}
+
+fn render_status_bar(frame: &mut ratatui::Frame, area: Rect, app: &App) {
+    let filter_info = if app.is_filter_active() {
+        let query = app.search.query();
+        let count = app.search.match_count();
+        let hint = if count == 0 {
+            "no matches".to_string()
+        } else if count == 1 {
+            "1 match".to_string()
+        } else {
+            format!("{} matches", count)
+        };
+        Some((query, hint))
+    } else {
+        None
+    };
+
+    let line = if app.in_search {
+        if let Some((query, hint)) = filter_info {
+            Line::from(vec![
+                Span::styled("Fuzzy Search (/) ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    format!("[filter: \"{}\" | {}]", query, hint),
+                    Style::default().fg(Color::White),
+                ),
+                Span::styled(
+                    "  ↑/↓ nav  Enter/Esc close",
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("Fuzzy Search (/) ", Style::default().fg(Color::Yellow)),
+                Span::styled("[type to filter]", Style::default().fg(Color::White)),
+                Span::styled("  Esc close", Style::default().fg(Color::DarkGray)),
+            ])
+        }
+    } else if let Some((query, hint)) = filter_info {
+        Line::from(vec![
+            Span::styled("Fuzzy Search (/) ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                format!("[filter: \"{}\" | {}]", query, hint),
+                Style::default().fg(Color::White),
+            ),
+            Span::styled("  / edit filter", Style::default().fg(Color::DarkGray)),
+        ])
+    } else {
+        let hints = vec![
+            ("j/k", "nav"),
+            ("Tab", "focus"),
+            ("/", "search"),
+            ("Space", "select"),
+            ("Enter", "confirm"),
+            ("Esc", "cancel"),
+        ];
+        let spans: Vec<Span> = hints
+            .into_iter()
+            .enumerate()
+            .flat_map(|(i, (key, desc))| {
+                let mut s = vec![
+                    Span::styled(key, Style::default().fg(Color::Yellow)),
+                    Span::styled(format!(" {}", desc), Style::default().fg(Color::DarkGray)),
+                ];
+                if i > 0 {
+                    s.insert(0, Span::styled("  ", Style::default().fg(Color::DarkGray)));
+                }
+                s
+            })
+            .collect();
+        Line::from(spans)
+    };
+    frame.render_widget(line, area);
 }
 
 fn confidence_style(confidence: u32) -> Style {
@@ -348,8 +787,6 @@ fn confidence_style(confidence: u32) -> Style {
             .fg(Color::Green)
             .add_modifier(Modifier::BOLD)
     } else if confidence >= 100 {
-        Style::default().fg(Color::Green)
-    } else if confidence >= 50 {
         Style::default().fg(Color::Yellow)
     } else {
         Style::default().fg(Color::DarkGray)
@@ -367,10 +804,4 @@ fn truncate_str(s: &str, max: usize) -> String {
     } else {
         chars[..max].iter().collect()
     }
-}
-
-fn render_key_hints(frame: &mut ratatui::Frame, area: Rect) {
-    let hints = " Tab: switch \u{2502} Space: select \u{2502} Enter: confirm \u{2502} Esc: cancel ";
-    let line = Line::from(Span::styled(hints, Style::default().fg(Color::DarkGray)));
-    frame.render_widget(line, area);
 }

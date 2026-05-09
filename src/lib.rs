@@ -10,3 +10,4 @@ pub mod miller;
 pub mod os_detect;
 pub mod pager;
 pub mod scanner;
+pub mod tui;

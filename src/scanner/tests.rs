@@ -121,3 +121,144 @@ fn scan_directory_sorted_by_confidence() {
         assert!(window[0].confidence >= window[1].confidence);
     }
 }
+
+#[test]
+fn scan_sources_combines_multiple_directories() {
+    let tmp = TempDir::new().unwrap();
+    let dir_a = create_dir(tmp.path(), "a");
+    let dir_b = create_dir(tmp.path(), "b");
+
+    create_file(&dir_a, "nvim");
+    create_file(&dir_b, "vim");
+
+    let sources = vec![
+        ScanSource::new(dir_a.clone(), 0),
+        ScanSource::new(dir_b.clone(), 0),
+    ];
+    let ignored = HashSet::new();
+    let results = scan_sources(&sources, &ignored);
+
+    let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"nvim"));
+    assert!(names.contains(&"vim"));
+}
+
+#[test]
+fn scan_sources_deduplicates_by_path() {
+    let tmp = TempDir::new().unwrap();
+    let dir_a = create_dir(tmp.path(), "a");
+
+    create_file(&dir_a, "nvim");
+
+    let sources = vec![
+        ScanSource::new(dir_a.clone(), 0),
+        ScanSource::new(dir_a.clone(), 0),
+    ];
+    let ignored = HashSet::new();
+    let results = scan_sources(&sources, &ignored);
+
+    let count = results.iter().filter(|r| r.name == "nvim").count();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn scan_sources_applies_positive_modifier() {
+    let tmp = TempDir::new().unwrap();
+    let dir = create_dir(tmp.path(), "src");
+
+    create_file(&dir, "settings.toml");
+
+    let sources = vec![ScanSource::new(dir.clone(), 50)];
+    let ignored = HashSet::new();
+    let results = scan_sources(&sources, &ignored);
+
+    let item = results.iter().find(|r| r.name == "settings.toml").unwrap();
+    assert_eq!(item.confidence, 130); // 80 + 50
+}
+
+#[test]
+fn scan_sources_applies_negative_modifier() {
+    let tmp = TempDir::new().unwrap();
+    let dir = create_dir(tmp.path(), "src");
+
+    create_file(&dir, ".zshrc");
+
+    let sources = vec![ScanSource::new(dir.clone(), -50)];
+    let ignored = HashSet::new();
+    let results = scan_sources(&sources, &ignored);
+
+    let item = results.iter().find(|r| r.name == ".zshrc").unwrap();
+    assert_eq!(item.confidence, 150); // 200 - 50
+}
+
+#[test]
+fn scan_sources_discards_below_threshold() {
+    let tmp = TempDir::new().unwrap();
+    let dir = create_dir(tmp.path(), "src");
+
+    create_file(&dir, "readme.txt"); // scores 10, below 80 threshold
+
+    let sources = vec![ScanSource::new(dir.clone(), 0)];
+    let ignored = HashSet::new();
+    let results = scan_sources(&sources, &ignored);
+
+    assert!(!results.iter().any(|r| r.name == "readme.txt"));
+}
+
+#[test]
+fn scan_sources_keeps_at_threshold() {
+    let tmp = TempDir::new().unwrap();
+    let dir = create_dir(tmp.path(), "src");
+
+    create_file(&dir, "settings.toml"); // scores 80, at threshold
+
+    let sources = vec![ScanSource::new(dir.clone(), 0)];
+    let ignored = HashSet::new();
+    let results = scan_sources(&sources, &ignored);
+
+    assert!(results.iter().any(|r| r.name == "settings.toml"));
+    assert_eq!(results.iter().find(|r| r.name == "settings.toml").unwrap().confidence, 80);
+}
+
+#[test]
+fn scan_sources_penalized_items_above_threshold_are_kept() {
+    let tmp = TempDir::new().unwrap();
+    let dir = create_dir(tmp.path(), "src");
+
+    // nvim is a known app (scores 150), with -50 modifier = 100, above threshold
+    create_dir(&dir, "nvim");
+
+    let sources = vec![ScanSource::new(dir.clone(), -50)];
+    let ignored = HashSet::new();
+    let results = scan_sources(&sources, &ignored);
+
+    assert!(results.iter().any(|r| r.name == "nvim"));
+    assert_eq!(results.iter().find(|r| r.name == "nvim").unwrap().confidence, 100);
+}
+
+#[test]
+fn default_scan_sources_includes_home_and_config() {
+    let tmp = TempDir::new().unwrap();
+    let home = tmp.path();
+
+    let sources = default_scan_sources(home);
+    let paths: Vec<PathBuf> = sources.iter().map(|s| s.path.clone()).collect();
+
+    assert!(paths.contains(&home.join(".config")));
+    assert!(paths.contains(&home.to_path_buf()));
+}
+
+#[test]
+fn default_scan_sources_penalizes_secondary() {
+    let tmp = TempDir::new().unwrap();
+    let home = tmp.path();
+
+    let sources = default_scan_sources(home);
+    let local_bin = sources.iter().find(|s| s.path == home.join(".local/bin"));
+    let ssh = sources.iter().find(|s| s.path == home.join(".ssh"));
+
+    assert!(local_bin.is_some());
+    assert_eq!(local_bin.unwrap().modifier, -50);
+    assert!(ssh.is_some());
+    assert_eq!(ssh.unwrap().modifier, -50);
+}

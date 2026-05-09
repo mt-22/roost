@@ -1,9 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use color_eyre::Result;
-use console::style;
-use dialoguer::theme::ColorfulTheme;
-use dialoguer::{Confirm, Input, MultiSelect};
+use dialoguer::{Confirm, Input, MultiSelect, console::style, theme::ColorfulTheme};
 
 use crate::{app, data, git, init_tui, linker, logo, os_detect, scanner};
 
@@ -137,22 +135,16 @@ pub fn run_wizard() -> Result<()> {
     let ignored_set: HashSet<String> = config.ignored.iter().cloned().collect();
 
     let home = dirs::home_dir().expect("no home directory");
-    let mut all_items = Vec::new();
+    let sources = scanner::default_scan_sources(&home);
+    let all_items = scanner::scan_sources(&sources, &ignored_set);
 
-    let config_dir = home.join(".config");
-    if config_dir.exists() {
-        all_items.extend(scanner::scan_directory(&config_dir, &ignored_set));
-    }
-
-    let home_items = scanner::scan_directory(&home, &ignored_set);
-    let existing_paths: HashSet<_> = all_items.iter().map(|i| i.path.clone()).collect();
-    all_items.extend(
-        home_items
-            .into_iter()
-            .filter(|i| !existing_paths.contains(&i.path)),
-    );
-
-    let selected = init_tui::run_selection_tui(all_items, &home)?;
+    let selected = match init_tui::run_selection_tui(all_items, &home)? {
+        init_tui::TuiResult::Selected(items) => items,
+        init_tui::TuiResult::Aborted => {
+            println!("{}", style("Aborted. No changes made.").yellow());
+            return Ok(());
+        }
+    };
 
     let mut local = local;
 

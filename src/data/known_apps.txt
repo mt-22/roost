@@ -17,6 +17,7 @@ helix
 kakoune
 micro
 nano
+zed
 
 # ── Terminals ──
 alacritty
@@ -33,6 +34,7 @@ hyper
 tmux
 zellij
 screen
+byobu
 
 # ── Window managers / compositors ──
 hyprland
@@ -63,6 +65,7 @@ i3blocks
 yambar
 ags
 sketchybar
+tint2
 
 # ── Launchers / menus ──
 rofi
@@ -110,6 +113,7 @@ vifm
 git
 gh
 lazygit
+gitui
 delta
 difftastic
 tig
@@ -130,14 +134,27 @@ bun
 deno
 pip
 poetry
+uv
+ruff
+pyenv
+fnm
+nvm
+volta
+pre-commit
+docker
+podman
 
-# ── System monitors ──
+# ── System monitors / fetch ──
 btop
 htop
 gotop
 bottom
 conky
 glances
+neofetch
+fastfetch
+macchina
+cpufetch
 
 # ── Media ──
 mpv
@@ -146,6 +163,8 @@ ncmpcpp
 cava
 cmus
 moc
+spicetify
+ncspot
 
 # ── macOS specific ──
 karabiner
@@ -155,6 +174,12 @@ skhd
 aerospace
 borders
 finicky
+raycast
+rectangle
+amethyst
+stats
+alt-tab
+bettertouchtool
 
 # ── Misc ──
 ssh
@@ -175,3 +200,8 @@ fd
 fzf
 zoxide
 atuin
+weechat
+zathura
+newsboat
+flameshot
+pywal

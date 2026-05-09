@@ -1,13 +1,14 @@
+use std::{
+    collections::HashSet,
+    fs::{self, DirEntry},
+    path::{Path, PathBuf},
+};
+
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Widget},
-};
-use std::{
-    collections::HashSet,
-    fs::{self, DirEntry},
-    path::{Path, PathBuf},
 };
 
 pub struct MillerColumn {
@@ -49,6 +50,9 @@ pub struct MillerColumns {
     columns: Vec<MillerColumn>,
     root: PathBuf,
     selected: HashSet<PathBuf>,
+    /// When set, only these indices are shown in the current (last) column.
+    filtered_indices: Option<Vec<usize>>,
+    filtered_cursor: usize,
 }
 
 impl MillerColumns {
@@ -59,13 +63,66 @@ impl MillerColumns {
             columns: vec![column],
             root: root.to_path_buf(),
             selected: HashSet::new(),
+            filtered_indices: None,
+            filtered_cursor: 0,
+        }
+    }
+
+    pub fn set_filter(&mut self, indices: Vec<usize>) {
+        self.filtered_indices = Some(indices);
+        self.filtered_cursor = 0;
+    }
+
+    pub fn clear_filter(&mut self) {
+        self.filtered_indices = None;
+        self.filtered_cursor = 0;
+    }
+
+    pub fn is_filtered(&self) -> bool {
+        self.filtered_indices.is_some()
+    }
+
+    pub fn filtered_cursor(&self) -> usize {
+        self.filtered_cursor
+    }
+
+    pub fn move_filtered_up(&mut self) {
+        if self.filtered_cursor > 0 {
+            self.filtered_cursor -= 1;
+        }
+    }
+
+    pub fn move_filtered_down(&mut self) {
+        if let Some(ref indices) = self.filtered_indices {
+            if !indices.is_empty() && self.filtered_cursor < indices.len() - 1 {
+                self.filtered_cursor += 1;
+            }
+        }
+    }
+
+    /// Set the filtered cursor to the position of `original_index` within the
+    /// filtered indices. This is used when navigating via an external search
+    /// engine that operates on original indices.
+    pub fn sync_filtered_cursor(&mut self, original_index: usize) {
+        if let Some(ref indices) = self.filtered_indices {
+            if let Some(pos) = indices.iter().position(|&i| i == original_index) {
+                self.filtered_cursor = pos;
+            }
+        }
+    }
+
+    fn real_cursor(&self) -> usize {
+        match self.filtered_indices {
+            Some(ref indices) => indices.get(self.filtered_cursor).copied().unwrap_or(0),
+            None => self.columns[self.columns.len() - 1].cursor,
         }
     }
 
     pub fn navigate_down(&mut self) {
+        let cursor = self.real_cursor();
         let path = {
             let current = &self.columns[self.columns.len() - 1];
-            match current.entries.get(current.cursor) {
+            match current.entries.get(cursor) {
                 Some(e) if e.file_type().map(|t| t.is_dir()).unwrap_or(false) => Some(e.path()),
                 _ => None,
             }
@@ -74,19 +131,24 @@ impl MillerColumns {
             && let Ok(col) = MillerColumn::load(path)
         {
             self.columns.push(col);
+            self.filtered_indices = None;
+            self.filtered_cursor = 0;
         }
     }
 
     pub fn navigate_up(&mut self) {
         if self.columns.len() > 1 {
             self.columns.pop();
+            self.filtered_indices = None;
+            self.filtered_cursor = 0;
         }
     }
 
     pub fn toggle_select(&mut self) {
+        let cursor = self.real_cursor();
         let path = {
             let current = &self.columns[self.columns.len() - 1];
-            current.entries.get(current.cursor).map(|e| e.path())
+            current.entries.get(cursor).map(|e| e.path())
         };
         if let Some(path) = path
             && !self.selected.remove(&path)
@@ -124,8 +186,29 @@ impl MillerColumns {
     }
 
     pub fn current_cursor_path(&self) -> Option<PathBuf> {
+        let cursor = self.real_cursor();
         let current = &self.columns[self.columns.len() - 1];
-        current.entries.get(current.cursor).map(|e| e.path())
+        current.entries.get(cursor).map(|e| e.path())
+    }
+
+    pub fn current_entries(&self) -> &[DirEntry] {
+        let current = &self.columns[self.columns.len() - 1];
+        &current.entries
+    }
+
+    pub fn current_cursor(&self) -> usize {
+        let current = &self.columns[self.columns.len() - 1];
+        current.cursor
+    }
+
+    pub fn set_current_cursor(&mut self, cursor: usize) {
+        let last = self.columns.len() - 1;
+        let col = &mut self.columns[last];
+        if !col.entries.is_empty() {
+            col.cursor = cursor.min(col.entries.len() - 1);
+        } else {
+            col.cursor = 0;
+        }
     }
 }
 
@@ -140,6 +223,7 @@ impl Widget for &MillerColumns {
 
         let current_idx = self.columns.len() - 1;
 
+        // Parent column
         if current_idx > 0 {
             let parent = &self.columns[current_idx - 1];
             let current_path = &self.columns[current_idx].path;
@@ -148,42 +232,62 @@ impl Widget for &MillerColumns {
                 .iter()
                 .position(|e| e.path() == *current_path)
                 .unwrap_or(0);
+            let parent_refs: Vec<&DirEntry> = parent.entries.iter().collect();
             render_entries(
                 buf,
                 chunks[0],
-                &parent.entries,
+                &parent_refs,
                 hl_idx,
                 None,
                 Some(current_path.as_path()),
                 &self.selected,
+                false,
             );
         } else {
             render_empty(buf, chunks[0]);
         }
 
+        // Current (active) column
         let current = &self.columns[current_idx];
+        let current_refs: Vec<&DirEntry> = match self.filtered_indices {
+            Some(ref indices) => indices
+                .iter()
+                .filter_map(|&i| current.entries.get(i))
+                .collect(),
+            None => current.entries.iter().collect(),
+        };
+        let (current_cursor, active_cursor) = match self.filtered_indices {
+            Some(_) => (self.filtered_cursor, Some(self.filtered_cursor)),
+            None => (current.cursor, Some(current.cursor)),
+        };
         render_entries(
             buf,
             chunks[1],
-            &current.entries,
-            current.cursor,
-            Some(current.cursor),
+            &current_refs,
+            current_cursor,
+            active_cursor,
             None,
             &self.selected,
+            true,
         );
 
-        if let Some(entry) = current.entries.get(current.cursor) {
+        let real_cursor = self.real_cursor();
+        if let Some(entry) = current.entries.get(real_cursor) {
             if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 match MillerColumn::load(entry.path()) {
-                    Ok(preview) => render_entries(
-                        buf,
-                        chunks[2],
-                        &preview.entries,
-                        0,
-                        None,
-                        None,
-                        &self.selected,
-                    ),
+                    Ok(preview) => {
+                        let preview_refs: Vec<&DirEntry> = preview.entries.iter().collect();
+                        render_entries(
+                            buf,
+                            chunks[2],
+                            &preview_refs,
+                            0,
+                            None,
+                            None,
+                            &self.selected,
+                            false,
+                        )
+                    }
                     Err(_) => render_empty(buf, chunks[2]),
                 }
             } else {
@@ -195,16 +299,34 @@ impl Widget for &MillerColumns {
     }
 }
 
-fn render_entries(
+pub(crate) fn render_entries(
     buf: &mut Buffer,
     area: Rect,
-    entries: &[DirEntry],
+    entries: &[&DirEntry],
     focus: usize,
     active_cursor: Option<usize>,
     highlight_path: Option<&Path>,
     selected: &HashSet<PathBuf>,
+    is_active_column: bool,
 ) {
-    let block = Block::default().borders(Borders::ALL);
+    let border_color = if is_active_column {
+        Color::Cyan
+    } else {
+        Color::DarkGray
+    };
+
+    let title = if is_active_column {
+        " Current "
+    } else if highlight_path.is_some() {
+        " Parent "
+    } else {
+        " Preview "
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color))
+        .title(title);
     let inner = block.inner(area);
     block.render(area, buf);
 
@@ -232,23 +354,32 @@ fn render_entries(
         let is_hl = highlight_path.is_some_and(|hp| hp == path);
         let is_cur = active_cursor == Some(idx);
 
-        let marker = if is_sel { "\u{2611} " } else { "\u{2610} " };
         let suffix = if is_dir { "/" } else { "" };
-        let display = format!("{marker}{name}{suffix}");
+
+        // Prefix: cursor indicator or selected indicator
+        let prefix = if is_cur {
+            "» "
+        } else if is_sel {
+            "✓ "
+        } else {
+            "  "
+        };
+
+        let display = format!("{prefix}{name}{suffix}");
 
         let max_len = inner.width as usize;
         let truncated: String = display.chars().take(max_len).collect();
 
         let style = if is_cur {
             Style::default()
-                .bg(Color::Blue)
+                .bg(Color::DarkGray)
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD)
         } else if is_hl {
             Style::default().bg(Color::DarkGray).fg(Color::White)
         } else if is_sel {
             Style::default()
-                .fg(Color::Cyan)
+                .fg(Color::Green)
                 .add_modifier(Modifier::BOLD)
         } else if is_dir {
             Style::default().fg(Color::White)
@@ -261,11 +392,17 @@ fn render_entries(
 }
 
 fn render_empty(buf: &mut Buffer, area: Rect) {
-    Block::default().borders(Borders::ALL).render(area, buf);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    block.render(area, buf);
 }
 
 fn render_file_indicator(buf: &mut Buffer, area: Rect) {
-    let block = Block::default().borders(Borders::ALL);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(" Preview ");
     let inner = block.inner(area);
     block.render(area, buf);
     if inner.width > 6 && inner.height > 0 {
@@ -340,7 +477,6 @@ mod tests {
             mc.current_cursor_path().unwrap(),
             dir.path().join("file2.txt")
         );
-        mc.move_down();
         mc.move_down();
         mc.move_down();
         mc.move_down();

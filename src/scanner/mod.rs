@@ -119,5 +119,76 @@ pub fn scan_directory(dir: &Path, ignored: &HashSet<String>) -> Vec<DiscoveredIt
     results
 }
 
+/// A configurable source directory for scanning.
+#[derive(Debug, Clone)]
+pub struct ScanSource {
+    pub path: PathBuf,
+    /// Modifier applied to the base confidence score from this source.
+    /// Negative values penalize configs found in secondary locations.
+    pub modifier: i32,
+}
+
+impl ScanSource {
+    pub fn new(path: PathBuf, modifier: i32) -> Self {
+        Self { path, modifier }
+    }
+}
+
+/// Scan multiple source directories, apply source modifiers, filter out
+/// low-confidence items (< 80), and deduplicate by path.
+///
+/// Items with final score >= 150 are considered for auto-selection during init.
+/// Items with final score < 80 are discarded entirely.
+pub fn scan_sources(sources: &[ScanSource], ignored: &HashSet<String>) -> Vec<DiscoveredItem> {
+    let mut seen_paths = HashSet::new();
+    let mut all_items = Vec::new();
+
+    for source in sources {
+        if !source.path.exists() {
+            continue;
+        }
+        let items = scan_directory(&source.path, ignored);
+        for mut item in items {
+            if !seen_paths.insert(item.path.clone()) {
+                continue;
+            }
+
+            // Apply source modifier
+            let adjusted = if source.modifier >= 0 {
+                item.confidence.saturating_add(source.modifier as u32)
+            } else {
+                item.confidence.saturating_sub((-source.modifier) as u32)
+            };
+            item.confidence = adjusted;
+
+            // Discard items below threshold
+            if item.confidence >= 80 {
+                all_items.push(item);
+            }
+        }
+    }
+
+    all_items.sort_by(|a, b| b.confidence.cmp(&a.confidence));
+    all_items
+}
+
+/// Build the default list of scan sources for the current platform.
+pub fn default_scan_sources(home: &Path) -> Vec<ScanSource> {
+    let mut sources = vec![
+        ScanSource::new(home.join(".config"), 0),
+        ScanSource::new(home.to_path_buf(), 0),
+    ];
+
+    // Secondary sources (penalized)
+    sources.push(ScanSource::new(
+        home.join("Library/Application Support"),
+        -50,
+    ));
+    sources.push(ScanSource::new(home.join(".local/bin"), -50));
+    sources.push(ScanSource::new(home.join(".ssh"), -50));
+
+    sources
+}
+
 #[cfg(test)]
 mod tests;
