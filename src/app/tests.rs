@@ -10,6 +10,7 @@ fn make_shared_config() -> SharedAppConfig {
             primary_config: Some(PathBuf::from("init.lua")),
             on_profiles: ["laptop".into()].into(),
             is_dir: true,
+            ignore: Vec::new(),
         },
     );
     apps.insert(
@@ -18,6 +19,7 @@ fn make_shared_config() -> SharedAppConfig {
             primary_config: None,
             on_profiles: ["laptop".into()].into(),
             is_dir: false,
+            ignore: Vec::new(),
         },
     );
 

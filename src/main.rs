@@ -26,6 +26,7 @@ fn main() -> Result<()> {
         Some(Commands::Profile(cmd)) => cmd_profile(cmd),
         Some(Commands::Diff) => cmd_diff(),
         Some(Commands::Log) => cmd_log(),
+        Some(Commands::Ignore { app, list, pattern }) => cmd_ignore(app, list, pattern),
         Some(Commands::Undo { n }) => cmd_undo(n),
         Some(Commands::Rollback { hash }) => cmd_rollback(&hash),
         Some(Commands::Restore { app }) => cmd_restore(&app),
@@ -203,6 +204,84 @@ fn cmd_log() -> Result<()> {
     pager::open(&formatted.join("\n"))
 }
 
+fn cmd_ignore(app: Option<String>, list: bool, pattern: Option<String>) -> Result<()> {
+    let (mut shared, _, roost_dir) = load_configs()?;
+    let shared_path = app::shared_config_path(&roost_dir);
+
+    if list || pattern.is_none() {
+        // List current rules
+        println!("{}", style("Global ignore patterns:").bold());
+        if shared.ignored.is_empty() {
+            println!("  (none)");
+        } else {
+            for p in &shared.ignored {
+                println!("  {}", style(p).white());
+            }
+        }
+
+        let apps_with_ignores: Vec<_> = shared
+            .apps
+            .iter()
+            .filter(|(_, a)| !a.ignore.is_empty())
+            .collect();
+        if !apps_with_ignores.is_empty() {
+            println!();
+            println!("{}", style("Per-app ignore patterns:").bold());
+            for (name, app) in apps_with_ignores {
+                for p in &app.ignore {
+                    println!("  {}  {}", style(name).cyan(), style(p).white());
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    let pattern = pattern.unwrap();
+
+    if let Some(app_name) = app {
+        let app_entry = shared
+            .apps
+            .get_mut(&app_name)
+            .ok_or_else(|| color_eyre::eyre::eyre!("App '{}' not found.", app_name))?;
+        if !app_entry.ignore.contains(&pattern) {
+            app_entry.ignore.push(pattern.clone());
+            println!(
+                "{} {} {}",
+                style("Added per-app ignore").green(),
+                style(&app_name).cyan(),
+                style(&pattern).white()
+            );
+        } else {
+            println!(
+                "{} {} {}",
+                style("Pattern already exists for").yellow(),
+                style(&app_name).cyan(),
+                style(&pattern).white()
+            );
+        }
+    } else {
+        if shared.ignored.insert(pattern.clone()) {
+            println!(
+                "{} {}",
+                style("Added global ignore").green(),
+                style(&pattern).white()
+            );
+        } else {
+            println!(
+                "{} {}",
+                style("Pattern already exists:").yellow(),
+                style(&pattern).white()
+            );
+        }
+    }
+
+    app::save_shared(&shared_path, &shared)?;
+    roost::gitignore::regenerate(&roost_dir, &shared.ignored, &shared.apps)?;
+    git::save(&roost_dir, &format!("ignore: added {}", pattern))?;
+    println!("{}", style("Updated .gitignore").green());
+    Ok(())
+}
+
 fn cmd_remote(url: Option<String>) -> Result<()> {
     let (_, _, roost_dir) = load_configs()?;
     match url {
@@ -277,6 +356,7 @@ fn cmd_add(path: &std::path::Path) -> Result<()> {
                 s
             },
             is_dir,
+            ignore: Vec::new(),
         },
     );
     if let Some(profile) = shared.profiles.get_mut(&profile_name) {
@@ -758,6 +838,7 @@ fn cmd_adopt() -> Result<()> {
                     s
                 },
                 is_dir: *is_dir,
+                ignore: Vec::new(),
             },
         );
         if let Some(profile) = shared.profiles.get_mut(&profile_name) {

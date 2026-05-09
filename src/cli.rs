@@ -21,6 +21,13 @@ pub enum Commands {
     Profile(ProfileCmd),
     Diff,
     Log,
+    Ignore {
+        #[arg(long)]
+        app: Option<String>,
+        #[arg(long)]
+        list: bool,
+        pattern: Option<String>,
+    },
     Undo {
         n: Option<usize>,
     },

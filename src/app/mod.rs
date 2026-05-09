@@ -39,6 +39,8 @@ pub struct Application {
     #[serde(default)]
     pub on_profiles: BTreeSet<String>,
     pub is_dir: bool,
+    #[serde(default)]
+    pub ignore: Vec<String>,
 }
 
 pub fn roost_dir() -> PathBuf {

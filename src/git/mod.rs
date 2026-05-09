@@ -188,6 +188,7 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
 
     // write merged config and commit
     save_shared(&local_config_path, &merged)?;
+    crate::gitignore::regenerate(roost_dir, &merged.ignored, &merged.apps)?;
     run_git(roost_dir, &["add", "-A"])?;
     match run_git(
         roost_dir,

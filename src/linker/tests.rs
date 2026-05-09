@@ -329,6 +329,7 @@ fn build_config(apps: Vec<(&str, bool)>, profile_apps: Vec<&str>) -> SharedAppCo
                 primary_config: None,
                 on_profiles: BTreeSet::new(),
                 is_dir,
+                ignore: Vec::new(),
             },
         );
     }
@@ -517,6 +518,7 @@ fn switch_profile_removes_old_creates_new() {
             primary_config: None,
             on_profiles: BTreeSet::new(),
             is_dir: true,
+            ignore: Vec::new(),
         },
     );
     apps.insert(
@@ -525,6 +527,7 @@ fn switch_profile_removes_old_creates_new() {
             primary_config: None,
             on_profiles: BTreeSet::new(),
             is_dir: true,
+            ignore: Vec::new(),
         },
     );
 

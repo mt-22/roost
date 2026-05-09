@@ -118,20 +118,6 @@ pub fn run_wizard() -> Result<()> {
     std::fs::create_dir_all(&roost_dir)?;
     app::save_local(&local_path, &local)?;
 
-    let gitignore_path = roost_dir.join(".gitignore");
-    if gitignore_path.exists() {
-        let content = std::fs::read_to_string(&gitignore_path)?;
-        if !content.lines().any(|line| line.trim() == "local.toml") {
-            use std::io::Write;
-            let mut f = std::fs::OpenOptions::new()
-                .append(true)
-                .open(&gitignore_path)?;
-            writeln!(f, "local.toml")?;
-        }
-    } else {
-        std::fs::write(&gitignore_path, "local.toml\n")?;
-    }
-
     let ignored_set: HashSet<String> = config.ignored.iter().cloned().collect();
 
     let home = dirs::home_dir().expect("no home directory");
@@ -186,6 +172,7 @@ pub fn run_wizard() -> Result<()> {
                                 s
                             },
                             is_dir: item.item_type == scanner::ItemType::Dir,
+                            ignore: Vec::new(),
                         },
                     );
                     if let Some(profile) = config.profiles.get_mut(&profile_name) {
@@ -225,6 +212,8 @@ pub fn run_wizard() -> Result<()> {
     app::validate_shared(&config)?;
     app::save_shared(&shared_path, &config)?;
     println!("{}", style("Config written.").green());
+
+    crate::gitignore::regenerate(&roost_dir, &config.ignored, &config.apps)?;
 
     let actions = linker::ensure_links(&config, &local, &roost_dir)?;
     for action in &actions {

@@ -2,6 +2,7 @@ pub mod app;
 pub mod cli;
 pub mod data;
 pub mod git;
+pub mod gitignore;
 pub mod init;
 pub mod init_tui;
 pub mod linker;
