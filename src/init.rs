@@ -85,11 +85,13 @@ pub fn run_wizard() -> Result<()> {
             apps: BTreeMap::new(),
             ignored: BTreeSet::new(),
         };
-        cfg.profiles
-            .insert(profile_name.clone(), app::Profile {
+        cfg.profiles.insert(
+            profile_name.clone(),
+            app::Profile {
                 apps: BTreeSet::new(),
                 app_sources: BTreeMap::new(),
-            });
+            },
+        );
         cfg
     };
 
@@ -155,7 +157,10 @@ pub fn run_wizard() -> Result<()> {
     let mut local = local;
 
     if selected.is_empty() {
-        println!("{}", style("No apps selected. Continuing with empty config.").yellow());
+        println!(
+            "{}",
+            style("No apps selected. Continuing with empty config.").yellow()
+        );
     } else {
         let pdir = app::profile_dir(&roost_dir, &profile_name);
         let mut failures = Vec::new();
@@ -172,7 +177,12 @@ pub fn run_wizard() -> Result<()> {
                 app_name
             };
 
-            match linker::ingest(&item.path, &pdir, app_name, item.item_type == scanner::ItemType::Dir) {
+            match linker::ingest(
+                &item.path,
+                &pdir,
+                app_name,
+                item.item_type == scanner::ItemType::Dir,
+            ) {
                 Ok(()) => {
                     config.apps.insert(
                         app_name.to_string(),
@@ -189,7 +199,9 @@ pub fn run_wizard() -> Result<()> {
                     if let Some(profile) = config.profiles.get_mut(&profile_name) {
                         profile.apps.insert(app_name.to_string());
                     }
-                    local.link_paths.insert(app_name.to_string(), item.path.clone());
+                    local
+                        .link_paths
+                        .insert(app_name.to_string(), item.path.clone());
                     println!(
                         "  {} {}",
                         style("✓").green().bold(),

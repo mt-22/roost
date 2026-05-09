@@ -320,10 +320,7 @@ fn app_dest_dir_vs_file() {
 // --- config builders for ensure_links / switch_profile tests ---
 
 // build a single-profile shared config with the given apps
-fn build_config(
-    apps: Vec<(&str, bool)>,
-    profile_apps: Vec<&str>,
-) -> SharedAppConfig {
+fn build_config(apps: Vec<(&str, bool)>, profile_apps: Vec<&str>) -> SharedAppConfig {
     let mut app_map = BTreeMap::new();
     for (name, is_dir) in apps {
         app_map.insert(

@@ -53,7 +53,8 @@ pub struct MillerColumns {
 
 impl MillerColumns {
     pub fn new(root: &Path) -> Self {
-        let column = MillerColumn::load(root.to_path_buf()).unwrap_or_else(|_| MillerColumn::empty(root.to_path_buf()));
+        let column = MillerColumn::load(root.to_path_buf())
+            .unwrap_or_else(|_| MillerColumn::empty(root.to_path_buf()));
         Self {
             columns: vec![column],
             root: root.to_path_buf(),
@@ -244,9 +245,7 @@ fn render_entries(
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD)
         } else if is_hl {
-            Style::default()
-                .bg(Color::DarkGray)
-                .fg(Color::White)
+            Style::default().bg(Color::DarkGray).fg(Color::White)
         } else if is_sel {
             Style::default()
                 .fg(Color::Cyan)
@@ -262,9 +261,7 @@ fn render_entries(
 }
 
 fn render_empty(buf: &mut Buffer, area: Rect) {
-    Block::default()
-        .borders(Borders::ALL)
-        .render(area, buf);
+    Block::default().borders(Borders::ALL).render(area, buf);
 }
 
 fn render_file_indicator(buf: &mut Buffer, area: Rect) {
@@ -334,16 +331,25 @@ mod tests {
         let mut mc = MillerColumns::new(dir.path());
 
         mc.move_down();
-        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("file1.txt"));
+        assert_eq!(
+            mc.current_cursor_path().unwrap(),
+            dir.path().join("file1.txt")
+        );
         mc.move_down();
-        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("file2.txt"));
+        assert_eq!(
+            mc.current_cursor_path().unwrap(),
+            dir.path().join("file2.txt")
+        );
         mc.move_down();
         mc.move_down();
         mc.move_down();
         mc.move_down();
         mc.move_down();
         mc.move_down();
-        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("file5.txt"));
+        assert_eq!(
+            mc.current_cursor_path().unwrap(),
+            dir.path().join("file5.txt")
+        );
     }
 
     #[test]
@@ -422,8 +428,14 @@ mod tests {
         fs::write(dir.path().join("bbb.txt"), b"b").unwrap();
 
         let mut mc = MillerColumns::new(dir.path());
-        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("aaa.txt"));
+        assert_eq!(
+            mc.current_cursor_path().unwrap(),
+            dir.path().join("aaa.txt")
+        );
         mc.move_down();
-        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("bbb.txt"));
+        assert_eq!(
+            mc.current_cursor_path().unwrap(),
+            dir.path().join("bbb.txt")
+        );
     }
 }

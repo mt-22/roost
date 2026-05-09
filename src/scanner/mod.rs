@@ -77,11 +77,10 @@ fn matches_ignore(name: &str, ignored: &HashSet<String>) -> bool {
         return true;
     }
     for pattern in ignored {
-        if let Some(suffix) = pattern.strip_prefix('*') {
-            if name.ends_with(suffix) {
+        if let Some(suffix) = pattern.strip_prefix('*')
+            && name.ends_with(suffix) {
                 return true;
             }
-        }
     }
     false
 }

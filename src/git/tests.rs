@@ -142,5 +142,8 @@ fn set_and_get_remote() {
 
     set_remote(tmp.path(), "https://github.com/user/dotfiles.git").unwrap();
     let url = get_remote(tmp.path()).unwrap();
-    assert_eq!(url, Some("https://github.com/user/dotfiles.git".to_string()));
+    assert_eq!(
+        url,
+        Some("https://github.com/user/dotfiles.git".to_string())
+    );
 }

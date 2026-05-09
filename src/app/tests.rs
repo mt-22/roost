@@ -112,7 +112,12 @@ fn empty_config_round_trip() {
 #[test]
 fn validate_rejects_unknown_app_in_profile() {
     let mut config = make_shared_config();
-    config.profiles.get_mut("laptop").unwrap().apps.insert("nonexistent".into());
+    config
+        .profiles
+        .get_mut("laptop")
+        .unwrap()
+        .apps
+        .insert("nonexistent".into());
     let result = validate_shared(&config);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -122,7 +127,12 @@ fn validate_rejects_unknown_app_in_profile() {
 #[test]
 fn validate_rejects_unknown_profile_in_app() {
     let mut config = make_shared_config();
-    config.apps.get_mut("nvim").unwrap().on_profiles.insert("nonexistent".into());
+    config
+        .apps
+        .get_mut("nvim")
+        .unwrap()
+        .on_profiles
+        .insert("nonexistent".into());
     let result = validate_shared(&config);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -139,8 +149,18 @@ fn validate_rejects_cycle_in_app_sources() {
             app_sources: BTreeMap::new(),
         },
     );
-    config.profiles.get_mut("laptop").unwrap().app_sources.insert("nvim".into(), "shared".into());
-    config.profiles.get_mut("shared").unwrap().app_sources.insert("nvim".into(), "laptop".into());
+    config
+        .profiles
+        .get_mut("laptop")
+        .unwrap()
+        .app_sources
+        .insert("nvim".into(), "shared".into());
+    config
+        .profiles
+        .get_mut("shared")
+        .unwrap()
+        .app_sources
+        .insert("nvim".into(), "laptop".into());
 
     let result = validate_shared(&config);
     assert!(result.is_err());
@@ -151,7 +171,12 @@ fn validate_rejects_cycle_in_app_sources() {
 #[test]
 fn validate_rejects_unknown_source_profile() {
     let mut config = make_shared_config();
-    config.profiles.get_mut("laptop").unwrap().app_sources.insert("nvim".into(), "ghost".into());
+    config
+        .profiles
+        .get_mut("laptop")
+        .unwrap()
+        .app_sources
+        .insert("nvim".into(), "ghost".into());
     let result = validate_shared(&config);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();

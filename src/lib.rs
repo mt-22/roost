@@ -1,4 +1,5 @@
 pub mod app;
+pub mod cli;
 pub mod data;
 pub mod git;
 pub mod init;

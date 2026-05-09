@@ -55,11 +55,11 @@ pub fn profile_dir(roost_dir: &Path, profile_name: &str) -> PathBuf {
     roost_dir.join(profile_name)
 }
 
-pub fn shared_config_path(roost_dir: &PathBuf) -> PathBuf {
+pub fn shared_config_path(roost_dir: &Path) -> PathBuf {
     roost_dir.join("roost.toml")
 }
 
-pub fn local_config_path(roost_dir: &PathBuf) -> PathBuf {
+pub fn local_config_path(roost_dir: &Path) -> PathBuf {
     roost_dir.join("local.toml")
 }
 
@@ -90,11 +90,11 @@ pub fn save_local(path: &PathBuf, config: &LocalAppConfig) -> Result<()> {
 }
 
 fn migrate_shared(raw: &str) -> String {
-    let doc = raw.to_string();
+    
     // Future migration hooks go here.
     // e.g. old `apps` list format -> table format
     // e.g. old `link_path` -> `link_paths`
-    doc
+    raw.to_string()
 }
 
 pub fn validate_shared(config: &SharedAppConfig) -> Result<()> {
@@ -127,9 +127,9 @@ pub fn validate_shared(config: &SharedAppConfig) -> Result<()> {
                 );
             }
             // Detect direct cycle: A sources from B, and B sources A back
-            if let Some(source) = config.profiles.get(source_profile) {
-                if let Some(back_ref) = source.app_sources.get(app_name) {
-                    if back_ref == profile_name {
+            if let Some(source) = config.profiles.get(source_profile)
+                && let Some(back_ref) = source.app_sources.get(app_name)
+                    && back_ref == profile_name {
                         color_eyre::eyre::bail!(
                             "cycle detected: app '{}' between profiles '{}' and '{}'",
                             app_name,
@@ -137,8 +137,6 @@ pub fn validate_shared(config: &SharedAppConfig) -> Result<()> {
                             source_profile
                         );
                     }
-                }
-            }
         }
     }
     // Check that on_profiles in apps reference real profiles

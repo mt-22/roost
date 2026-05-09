@@ -1,86 +1,11 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{CommandFactory, Parser};
 use color_eyre::{Result, eyre::bail};
 use console::style;
+use dialoguer::theme::ColorfulTheme;
+use roost::cli::{Cli, Commands, ProfileAction, ProfileCmd};
 use roost::{app, git, init, linker, pager};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-
-#[derive(Parser)]
-#[command(name = "roost", version = "0.2.0")]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Commands>,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    Init,
-    Add {
-        path: PathBuf,
-    },
-    Remove {
-        app: String,
-    },
-    Sync,
-    Profile(ProfileCmd),
-    Diff,
-    Log,
-    Undo {
-        n: Option<usize>,
-    },
-    Rollback {
-        hash: String,
-    },
-    Restore {
-        app: String,
-    },
-    Remote {
-        url: Option<String>,
-    },
-    Doctor {
-        #[arg(long)]
-        fix: bool,
-    },
-    Adopt,
-    Where {
-        app: String,
-        #[arg(long)]
-        profile: Option<String>,
-    },
-    List {
-        #[arg(long)]
-        profile: Option<String>,
-    },
-    Save {
-        message: Option<String>,
-    },
-}
-
-#[derive(Args)]
-struct ProfileCmd {
-    #[command(subcommand)]
-    action: ProfileAction,
-}
-
-#[derive(Subcommand)]
-enum ProfileAction {
-    List,
-    Switch {
-        name: String,
-    },
-    Add {
-        name: String,
-        #[arg(long)]
-        from: Option<String>,
-    },
-    Delete {
-        name: String,
-    },
-    Rename {
-        old: String,
-        new: String,
-    },
-}
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -111,6 +36,8 @@ fn main() -> Result<()> {
         Some(Commands::Where { app, profile }) => cmd_where(&app, profile),
         Some(Commands::List { profile }) => cmd_list(profile),
         Some(Commands::Save { message }) => cmd_save(message),
+        Some(Commands::Status) => cmd_status(),
+        Some(Commands::Completions { shell }) => cmd_completions(shell),
     }
 }
 
@@ -128,6 +55,61 @@ fn load_configs() -> Result<(app::SharedAppConfig, app::LocalAppConfig, PathBuf)
 
 fn cmd_init() -> Result<()> {
     init::run_wizard()
+}
+
+fn cmd_status() -> Result<()> {
+    let (shared, local, roost_dir) = load_configs()?;
+    let profile_name = &local.active_profile;
+    let app_count = shared
+        .profiles
+        .get(profile_name)
+        .map(|p| p.apps.len())
+        .unwrap_or(0);
+    let dirty = git::is_dirty(&roost_dir)?;
+    let remote = git::get_remote(&roost_dir)?.unwrap_or_else(|| "none".to_string());
+    let last_commit = match git::log(&roost_dir, 1)? {
+        commits if !commits.is_empty() => {
+            let c = &commits[0];
+            let short = &c.hash[..7.min(c.hash.len())];
+            format!("{}  {}", short, c.message)
+        }
+        _ => "none".to_string(),
+    };
+
+    println!(
+        "{} {}",
+        style("Active profile:").bold(),
+        style(profile_name).cyan()
+    );
+    println!(
+        "{} {}",
+        style("App count:").bold(),
+        style(app_count).white().bold()
+    );
+    println!(
+        "{} {}",
+        style("Dirty state:").bold(),
+        if dirty {
+            style("dirty").yellow()
+        } else {
+            style("clean").green()
+        }
+    );
+    println!("{} {}", style("Remote URL:").bold(), style(&remote).white());
+    println!(
+        "{} {}",
+        style("Last commit:").bold(),
+        style(&last_commit).white()
+    );
+    Ok(())
+}
+
+fn cmd_completions(shell: String) -> Result<()> {
+    let shell = shell
+        .parse::<clap_complete::Shell>()
+        .map_err(|_| color_eyre::eyre::eyre!("Unsupported shell: {}", shell))?;
+    clap_complete::generate(shell, &mut Cli::command(), "roost", &mut std::io::stdout());
+    Ok(())
 }
 
 fn format_app(
@@ -211,7 +193,12 @@ fn cmd_log() -> Result<()> {
         .iter()
         .map(|c| {
             let short = &c.hash[..7.min(c.hash.len())];
-            format!("{}  {}  {}", short, c.timestamp, c.message)
+            format!(
+                "{}  {}  {}",
+                style(short).cyan(),
+                style(&c.timestamp).dim(),
+                style(&c.message).white()
+            )
         })
         .collect();
     pager::open(&formatted.join("\n"))
@@ -254,7 +241,7 @@ fn cmd_rollback(hash: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_add(path: &PathBuf) -> Result<()> {
+fn cmd_add(path: &std::path::Path) -> Result<()> {
     let (mut shared, mut local, roost_dir) = load_configs()?;
     let profile_name = local.active_profile.clone();
     let pdir = app::profile_dir(&roost_dir, &profile_name);
@@ -296,7 +283,9 @@ fn cmd_add(path: &PathBuf) -> Result<()> {
     if let Some(profile) = shared.profiles.get_mut(&profile_name) {
         profile.apps.insert(app_name.to_string());
     }
-    local.link_paths.insert(app_name.to_string(), path.clone());
+    local
+        .link_paths
+        .insert(app_name.to_string(), path.to_path_buf());
     let shared_path = app::shared_config_path(&roost_dir);
     let local_path = app::local_config_path(&roost_dir);
     app::save_shared(&shared_path, &shared)?;
@@ -748,7 +737,7 @@ fn cmd_adopt() -> Result<()> {
         .map(|(name, is_dir)| format!("{} ({})", name, if *is_dir { "dir" } else { "file" }))
         .collect();
 
-    let selected = dialoguer::MultiSelect::new()
+    let selected = dialoguer::MultiSelect::with_theme(&ColorfulTheme::default())
         .with_prompt("Select orphaned apps to adopt")
         .items(&items)
         .interact()?;

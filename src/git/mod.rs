@@ -113,10 +113,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn sync(
-    roost_dir: &Path,
-    preference: ConflictPreference,
-) -> Result<SyncResult> {
+pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResult> {
     if get_remote(roost_dir)?.is_none() {
         bail!("no remote configured");
     }
@@ -134,7 +131,7 @@ pub fn sync(
     }
 
     // structural merge of roost.toml
-    let local_config_path = shared_config_path(&roost_dir.to_path_buf());
+    let local_config_path = shared_config_path(roost_dir);
     let local_config = load_shared(&local_config_path)?;
 
     let remote_toml = run_git(roost_dir, &["show", "origin/main:roost.toml"])?;
@@ -175,7 +172,9 @@ pub fn sync(
                 local_profile.apps.insert(app.clone());
             }
             for (app_name, source) in &remote_profile.app_sources {
-                local_profile.app_sources.insert(app_name.clone(), source.clone());
+                local_profile
+                    .app_sources
+                    .insert(app_name.clone(), source.clone());
             }
         } else {
             merged.profiles.insert(name.clone(), remote_profile.clone());
@@ -190,7 +189,10 @@ pub fn sync(
     // write merged config and commit
     save_shared(&local_config_path, &merged)?;
     run_git(roost_dir, &["add", "-A"])?;
-    match run_git(roost_dir, &["commit", "-m", "merge: resolve sync conflicts"]) {
+    match run_git(
+        roost_dir,
+        &["commit", "-m", "merge: resolve sync conflicts"],
+    ) {
         Ok(_) => {}
         Err(e) if e.to_string().contains("nothing to commit") => {}
         Err(e) => return Err(e),
@@ -200,7 +202,7 @@ pub fn sync(
     let mut backups: Vec<PathBuf> = Vec::new();
     if matches!(preference, ConflictPreference::Remote) {
         // attempt rebase to discover which files conflict
-        if let Err(_) = run_git(roost_dir, &["rebase", "origin/main"]) {
+        if run_git(roost_dir, &["rebase", "origin/main"]).is_err() {
             let conflict_files = get_conflict_files(roost_dir);
             for file in &conflict_files {
                 if let Ok(backup) = backup_conflict_file(roost_dir, file) {

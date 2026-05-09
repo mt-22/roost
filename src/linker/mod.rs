@@ -29,16 +29,16 @@ pub fn ingest(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> 
 
     // backup before moving
     if origin.is_dir() {
-        copy_dir_recursive(&origin, &backup_dest)?;
+        copy_dir_recursive(origin, &backup_dest)?;
     } else {
-        fs::copy(&origin, &backup_dest)?;
+        fs::copy(origin, &backup_dest)?;
     }
 
     // move origin -> roost dest
-    fs::rename(&origin, &app_dest)?;
+    fs::rename(origin, &app_dest)?;
 
     // symlink: origin -> roost dest
-    create_symlink(&app_dest, &origin, is_dir)?;
+    create_symlink(&app_dest, origin, is_dir)?;
 
     Ok(())
 }
@@ -228,13 +228,11 @@ pub fn switch_profile(
             };
             let dest = app_dest(&old_dir, app_name, app.is_dir);
 
-            if origin.is_symlink() {
-                if let Ok(target) = fs::read_link(&origin) {
-                    if target == dest {
+            if origin.is_symlink()
+                && let Ok(target) = fs::read_link(&origin)
+                    && target == dest {
                         let _ = fs::remove_file(&origin);
                     }
-                }
-            }
         }
     }
 
@@ -439,7 +437,7 @@ pub struct Orphan {
 
 pub fn find_orphans(config: &SharedAppConfig, roost_dir: &Path) -> Result<Vec<Orphan>> {
     let mut orphans = Vec::new();
-    for (prof_name, _) in &config.profiles {
+    for prof_name in config.profiles.keys() {
         let pdir = crate::app::profile_dir(roost_dir, prof_name);
         if !pdir.exists() {
             continue;
