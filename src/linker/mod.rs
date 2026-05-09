@@ -379,28 +379,51 @@ pub fn check_links(
         let origin = match local.link_paths.get(app_name) {
             Some(p) => p.clone(),
             None => {
-                results.push(LinkStatus::NoLinkPath { app: app_name.clone() });
+                results.push(LinkStatus::NoLinkPath {
+                    app: app_name.clone(),
+                });
                 continue;
             }
         };
         let dest = app_dest(&pdir, app_name, app_entry.is_dir);
 
         if !origin.exists() {
-            results.push(LinkStatus::Missing { app: app_name.clone(), origin, target: dest });
+            results.push(LinkStatus::Missing {
+                app: app_name.clone(),
+                origin,
+                target: dest,
+            });
         } else if origin.is_symlink() {
             match fs::read_link(&origin) {
                 Ok(target) if target == dest => {
-                    results.push(LinkStatus::Ok { app: app_name.clone(), origin, target: dest });
+                    results.push(LinkStatus::Ok {
+                        app: app_name.clone(),
+                        origin,
+                        target: dest,
+                    });
                 }
                 Ok(target) => {
-                    results.push(LinkStatus::Broken { app: app_name.clone(), origin: origin.clone(), actual: target, expected: dest });
+                    results.push(LinkStatus::Broken {
+                        app: app_name.clone(),
+                        origin: origin.clone(),
+                        actual: target,
+                        expected: dest,
+                    });
                 }
                 Err(_) => {
-                    results.push(LinkStatus::Broken { app: app_name.clone(), origin: origin.clone(), actual: PathBuf::new(), expected: dest });
+                    results.push(LinkStatus::Broken {
+                        app: app_name.clone(),
+                        origin: origin.clone(),
+                        actual: PathBuf::new(),
+                        expected: dest,
+                    });
                 }
             }
         } else {
-            results.push(LinkStatus::Conflict { app: app_name.clone(), origin });
+            results.push(LinkStatus::Conflict {
+                app: app_name.clone(),
+                origin,
+            });
         }
     }
     Ok(results)
@@ -414,10 +437,7 @@ pub struct Orphan {
     pub path: PathBuf,
 }
 
-pub fn find_orphans(
-    config: &SharedAppConfig,
-    roost_dir: &Path,
-) -> Result<Vec<Orphan>> {
+pub fn find_orphans(config: &SharedAppConfig, roost_dir: &Path) -> Result<Vec<Orphan>> {
     let mut orphans = Vec::new();
     for (prof_name, _) in &config.profiles {
         let pdir = crate::app::profile_dir(roost_dir, prof_name);
@@ -431,7 +451,12 @@ pub fn find_orphans(
             }
             if !config.apps.contains_key(&name) {
                 let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-                orphans.push(Orphan { profile: prof_name.clone(), name, is_dir, path: entry.path() });
+                orphans.push(Orphan {
+                    profile: prof_name.clone(),
+                    name,
+                    is_dir,
+                    path: entry.path(),
+                });
             }
         }
         let misc_dir = pdir.join(MISC_DIR_NAME);
@@ -440,7 +465,12 @@ pub fn find_orphans(
                 let name = entry.file_name().to_string_lossy().to_string();
                 if !config.apps.contains_key(&name) {
                     let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-                    orphans.push(Orphan { profile: prof_name.clone(), name, is_dir, path: entry.path() });
+                    orphans.push(Orphan {
+                        profile: prof_name.clone(),
+                        name,
+                        is_dir,
+                        path: entry.path(),
+                    });
                 }
             }
         }

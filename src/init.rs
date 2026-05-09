@@ -1,9 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use color_eyre::Result;
+use console::style;
+use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Input, MultiSelect};
 
 use crate::{app, data, git, init_tui, linker, logo, os_detect, scanner};
+
+fn roost_theme() -> ColorfulTheme {
+    ColorfulTheme::default()
+}
 
 fn get_hostname() -> String {
     std::process::Command::new("hostname")
@@ -17,7 +23,11 @@ fn get_hostname() -> String {
 
 pub fn run_wizard() -> Result<()> {
     let roost_dir = app::roost_dir();
-    println!("Roost directory: {}", roost_dir.display());
+    println!(
+        "  {} {}",
+        style("Roost directory:").cyan().bold(),
+        style(roost_dir.display()).dim()
+    );
 
     let shared_path = app::shared_config_path(&roost_dir);
     let local_path = app::local_config_path(&roost_dir);
@@ -26,7 +36,7 @@ pub fn run_wizard() -> Result<()> {
     let existing_local = local_path.exists();
 
     if existing_shared && existing_local {
-        let proceed = Confirm::new()
+        let proceed = Confirm::with_theme(&roost_theme())
             .with_prompt(format!(
                 "Roost is already initialized at {}. Add a new profile?",
                 roost_dir.display()
@@ -34,12 +44,13 @@ pub fn run_wizard() -> Result<()> {
             .default(true)
             .interact()?;
         if !proceed {
-            println!("Aborting.");
+            println!("{}", style("Aborting.").yellow());
             return Ok(());
         }
     }
 
-    let remote_url: String = Input::new()
+    let theme = roost_theme();
+    let remote_url: String = Input::with_theme(&theme)
         .with_prompt("Git remote URL (leave empty to skip)")
         .allow_empty(true)
         .interact()?;
@@ -50,7 +61,7 @@ pub fn run_wizard() -> Result<()> {
     };
 
     let hostname = get_hostname();
-    let profile_name: String = Input::new()
+    let profile_name: String = Input::with_theme(&theme)
         .with_prompt("Profile name:")
         .default(hostname)
         .interact()?;
@@ -93,7 +104,7 @@ pub fn run_wizard() -> Result<()> {
         .map(|s| s.to_string())
         .collect();
     let ignore_defaults: Vec<bool> = ignore_items.iter().map(|_| true).collect();
-    let selected_ignore = MultiSelect::new()
+    let selected_ignore = MultiSelect::with_theme(&theme)
         .with_prompt("Select ignore patterns")
         .items(&ignore_items)
         .defaults(&ignore_defaults)
@@ -144,7 +155,7 @@ pub fn run_wizard() -> Result<()> {
     let mut local = local;
 
     if selected.is_empty() {
-        println!("No apps selected. Continuing with empty config.");
+        println!("{}", style("No apps selected. Continuing with empty config.").yellow());
     } else {
         let pdir = app::profile_dir(&roost_dir, &profile_name);
         let mut failures = Vec::new();
@@ -179,10 +190,18 @@ pub fn run_wizard() -> Result<()> {
                         profile.apps.insert(app_name.to_string());
                     }
                     local.link_paths.insert(app_name.to_string(), item.path.clone());
-                    println!("  \u{2713} ingested {}", app_name);
+                    println!(
+                        "  {} {}",
+                        style("✓").green().bold(),
+                        style(format!("ingested {}", app_name)).green()
+                    );
                 }
                 Err(e) => {
-                    println!("  \u{2717} failed to ingest {}: {}", app_name, e);
+                    println!(
+                        "  {} {}",
+                        style("✗").red().bold(),
+                        style(format!("failed to ingest {}: {}", app_name, e)).red()
+                    );
                     failures.push((app_name.to_string(), e));
                 }
             }
@@ -190,9 +209,9 @@ pub fn run_wizard() -> Result<()> {
 
         if !failures.is_empty() {
             println!();
-            println!("Failures:");
+            println!("{}", style("Failures:").red().bold());
             for (name, err) in &failures {
-                println!("  {}: {}", name, err);
+                println!("  {}: {}", style(name).red(), style(err).red().dim());
             }
         }
 
@@ -201,11 +220,11 @@ pub fn run_wizard() -> Result<()> {
 
     app::validate_shared(&config)?;
     app::save_shared(&shared_path, &config)?;
-    println!("Config written.");
+    println!("{}", style("Config written.").green());
 
     let actions = linker::ensure_links(&config, &local, &roost_dir)?;
     for action in &actions {
-        println!("{}", action);
+        println!("{}", style(action).dim());
     }
 
     git::init(&roost_dir)?;
@@ -213,13 +232,15 @@ pub fn run_wizard() -> Result<()> {
         git::set_remote(&roost_dir, url)?;
     }
     git::save(&roost_dir, "init: roost initialized")?;
-    println!("Git repository initialized.");
+    println!("{}", style("Git repository initialized.").green());
 
-    println!("{}", logo::ROOST_LOGO);
+    println!("{}", style(logo::ROOST_LOGO).cyan());
     let app_count = config.apps.len();
     println!(
-        "Roost initialized! Profile: {}, {} apps managed.",
-        profile_name, app_count
+        "{} Profile: {}, {} apps managed.",
+        style("Roost initialized!").cyan().bold(),
+        style(&profile_name).white().bold(),
+        style(app_count).green().bold()
     );
 
     Ok(())

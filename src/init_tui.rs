@@ -7,15 +7,15 @@ use std::{
 use color_eyre::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Tabs},
-    Terminal,
 };
 
 use crate::miller::MillerColumns;
@@ -37,10 +37,11 @@ struct App {
 }
 
 impl App {
-    fn new(scan_items: Vec<DiscoveredItem>, root_path: &Path) -> Self {
+    fn new(mut scan_items: Vec<DiscoveredItem>, root_path: &Path) -> Self {
+        scan_items.sort_by(|a, b| b.confidence.cmp(&a.confidence));
         let mut selected_indices = HashSet::new();
         for (i, item) in scan_items.iter().enumerate() {
-            if item.confidence >= 100 {
+            if item.confidence >= 150 {
                 selected_indices.insert(i);
             }
         }
@@ -284,11 +285,7 @@ fn render_scan_list(frame: &mut ratatui::Frame, area: Rect, app: &mut App) {
                 ItemType::File => "File",
             };
 
-            let short_path = item
-                .path
-                .parent()
-                .and_then(|p| p.to_str())
-                .unwrap_or("");
+            let short_path = item.path.parent().and_then(|p| p.to_str()).unwrap_or("");
 
             let line = Line::from(vec![
                 Span::styled(
@@ -374,9 +371,6 @@ fn truncate_str(s: &str, max: usize) -> String {
 
 fn render_key_hints(frame: &mut ratatui::Frame, area: Rect) {
     let hints = " Tab: switch \u{2502} Space: select \u{2502} Enter: confirm \u{2502} Esc: cancel ";
-    let line = Line::from(Span::styled(
-        hints,
-        Style::default().fg(Color::DarkGray),
-    ));
+    let line = Line::from(Span::styled(hints, Style::default().fg(Color::DarkGray)));
     frame.render_widget(line, area);
 }

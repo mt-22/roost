@@ -1,8 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use color_eyre::{Result, eyre::bail};
+use console::style;
 use roost::{app, git, init, linker, pager};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "roost", version = "0.2.0")]
@@ -14,22 +15,45 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Init,
-    Add { path: PathBuf },
-    Remove { app: String },
+    Add {
+        path: PathBuf,
+    },
+    Remove {
+        app: String,
+    },
     Sync,
     Profile(ProfileCmd),
     Diff,
     Log,
-    Undo { n: Option<usize> },
-    Rollback { hash: String },
-    Restore { app: String },
-    Remote { url: Option<String> },
+    Undo {
+        n: Option<usize>,
+    },
+    Rollback {
+        hash: String,
+    },
+    Restore {
+        app: String,
+    },
+    Remote {
+        url: Option<String>,
+    },
     Doctor {
         #[arg(long)]
         fix: bool,
     },
     Adopt,
-    Where { app: String },
+    Where {
+        app: String,
+        #[arg(long)]
+        profile: Option<String>,
+    },
+    List {
+        #[arg(long)]
+        profile: Option<String>,
+    },
+    Save {
+        message: Option<String>,
+    },
 }
 
 #[derive(Args)]
@@ -41,10 +65,21 @@ struct ProfileCmd {
 #[derive(Subcommand)]
 enum ProfileAction {
     List,
-    Switch { name: String },
-    Add { name: String, #[arg(long)] from: Option<String> },
-    Delete { name: String },
-    Rename { old: String, new: String },
+    Switch {
+        name: String,
+    },
+    Add {
+        name: String,
+        #[arg(long)]
+        from: Option<String>,
+    },
+    Delete {
+        name: String,
+    },
+    Rename {
+        old: String,
+        new: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -54,7 +89,10 @@ fn main() -> Result<()> {
 
     match cli.command {
         None => {
-            println!("Main TUI not yet implemented — use `roost <command>`");
+            println!(
+                "{}",
+                style("Main TUI not yet implemented — use `roost <command>`").dim()
+            );
             Ok(())
         }
         Some(Commands::Init) => cmd_init(),
@@ -70,7 +108,9 @@ fn main() -> Result<()> {
         Some(Commands::Remote { url }) => cmd_remote(url),
         Some(Commands::Doctor { fix }) => cmd_doctor(fix),
         Some(Commands::Adopt) => cmd_adopt(),
-        Some(Commands::Where { app }) => cmd_where(&app),
+        Some(Commands::Where { app, profile }) => cmd_where(&app, profile),
+        Some(Commands::List { profile }) => cmd_list(profile),
+        Some(Commands::Save { message }) => cmd_save(message),
     }
 }
 
@@ -90,13 +130,71 @@ fn cmd_init() -> Result<()> {
     init::run_wizard()
 }
 
-fn cmd_where(app_name: &str) -> Result<()> {
-    let (shared, local, roost_dir) = load_configs()?;
-    let app_entry = shared.apps.get(app_name)
+fn format_app(
+    shared: &app::SharedAppConfig,
+    local: &app::LocalAppConfig,
+    app_name: &str,
+) -> Option<String> {
+    let app = shared.apps.get(app_name)?;
+    let kind = if app.is_dir { "dir" } else { "file" };
+    let origin = local
+        .link_paths
+        .get(app_name)
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    Some(format!(
+        "{} {} {} {}",
+        style(app_name).cyan(),
+        style(format!("({})", kind)).dim(),
+        style("→").dim(),
+        style(origin).dim(),
+    ))
+}
+
+fn cmd_where(app_name: &str, profile: Option<String>) -> Result<()> {
+    let (shared, local, _) = load_configs()?;
+    let profile_name = profile.as_deref().unwrap_or(&local.active_profile);
+    let profile = shared
+        .profiles
+        .get(profile_name)
+        .ok_or_else(|| color_eyre::eyre::eyre!("Profile '{}' not found.", profile_name))?;
+    if !profile.apps.contains(app_name) {
+        bail!(
+            "App '{}' not found in profile '{}'.",
+            app_name,
+            profile_name
+        );
+    }
+    let line = format_app(&shared, &local, app_name)
         .ok_or_else(|| color_eyre::eyre::eyre!("App '{}' not found in config.", app_name))?;
-    let pdir = app::profile_dir(&roost_dir, &local.active_profile);
-    let dest = linker::app_dest(&pdir, app_name, app_entry.is_dir);
-    println!("{}", dest.display());
+    println!("{}", line);
+    Ok(())
+}
+
+fn cmd_list(profile: Option<String>) -> Result<()> {
+    let (shared, local, _) = load_configs()?;
+    let profile_name = profile.as_deref().unwrap_or(&local.active_profile);
+    let profile = shared
+        .profiles
+        .get(profile_name)
+        .ok_or_else(|| color_eyre::eyre::eyre!("Profile '{}' not found.", profile_name))?;
+    for app_name in &profile.apps {
+        if let Some(line) = format_app(&shared, &local, app_name) {
+            println!("{}", line);
+        }
+    }
+    Ok(())
+}
+
+fn cmd_save(message: Option<String>) -> Result<()> {
+    let (_, _, roost_dir) = load_configs()?;
+    if !git::is_dirty(&roost_dir)? {
+        println!("{}", style("Nothing to save.").dim());
+        return Ok(());
+    }
+    let msg = message.as_deref().unwrap_or("save: manual save");
+    git::save(&roost_dir, msg)?;
+    println!("{}", style("Saved.").green());
     Ok(())
 }
 
@@ -109,7 +207,8 @@ fn cmd_diff() -> Result<()> {
 fn cmd_log() -> Result<()> {
     let (_, _, roost_dir) = load_configs()?;
     let commits = git::log(&roost_dir, 20)?;
-    let formatted: Vec<String> = commits.iter()
+    let formatted: Vec<String> = commits
+        .iter()
         .map(|c| {
             let short = &c.hash[..7.min(c.hash.len())];
             format!("{}  {}  {}", short, c.timestamp, c.message)
@@ -124,8 +223,8 @@ fn cmd_remote(url: Option<String>) -> Result<()> {
         Some(u) => git::set_remote(&roost_dir, &u),
         None => {
             match git::get_remote(&roost_dir)? {
-                Some(remote) => println!("{}", remote),
-                None => println!("No remote configured."),
+                Some(remote) => println!("{}", style(remote).white()),
+                None => println!("{}", style("No remote configured.").yellow()),
             }
             Ok(())
         }
@@ -136,14 +235,22 @@ fn cmd_undo(n: Option<usize>) -> Result<()> {
     let (_, _, roost_dir) = load_configs()?;
     let count = n.unwrap_or(1);
     git::undo(&roost_dir, count)?;
-    println!("Undid {} commit(s).", count);
+    println!(
+        "{} {} commit(s).",
+        style("Undid").green(),
+        style(count).white().bold()
+    );
     Ok(())
 }
 
 fn cmd_rollback(hash: &str) -> Result<()> {
     let (_, _, roost_dir) = load_configs()?;
     git::rollback(&roost_dir, hash)?;
-    println!("Rolled back to {}.", hash);
+    println!(
+        "{} {}.",
+        style("Rolled back to").green(),
+        style(hash).white().bold()
+    );
     Ok(())
 }
 
@@ -155,7 +262,8 @@ fn cmd_add(path: &PathBuf) -> Result<()> {
         bail!("Path '{}' does not exist.", path.display());
     }
     let is_dir = path.is_dir();
-    let file_name = path.file_name()
+    let file_name = path
+        .file_name()
         .ok_or_else(|| color_eyre::eyre::eyre!("Cannot determine file name from path."))?
         .to_string_lossy()
         .to_string();
@@ -173,15 +281,18 @@ fn cmd_add(path: &PathBuf) -> Result<()> {
         bail!("App '{}' already managed.", app_name);
     }
     linker::ingest(path, &pdir, app_name, is_dir)?;
-    shared.apps.insert(app_name.to_string(), app::Application {
-        primary_config: None,
-        on_profiles: {
-            let mut s = BTreeSet::new();
-            s.insert(profile_name.clone());
-            s
+    shared.apps.insert(
+        app_name.to_string(),
+        app::Application {
+            primary_config: None,
+            on_profiles: {
+                let mut s = BTreeSet::new();
+                s.insert(profile_name.clone());
+                s
+            },
+            is_dir,
         },
-        is_dir,
-    });
+    );
     if let Some(profile) = shared.profiles.get_mut(&profile_name) {
         profile.apps.insert(app_name.to_string());
     }
@@ -192,19 +303,23 @@ fn cmd_add(path: &PathBuf) -> Result<()> {
     app::save_local(&local_path, &local)?;
     let actions = linker::ensure_links(&shared, &local, &roost_dir)?;
     for action in actions {
-        println!("{}", action);
+        println!("{}", style(action).dim());
     }
     git::save(&roost_dir, &format!("add: {}", app_name))?;
-    println!("Added {}", app_name);
+    println!("{} {}", style("Added").green(), style(app_name).cyan());
     Ok(())
 }
 
 fn cmd_remove(app_name: &str) -> Result<()> {
     let (mut shared, mut local, roost_dir) = load_configs()?;
     let profile_name = local.active_profile.clone();
-    let app_entry = shared.apps.get(app_name)
+    let app_entry = shared
+        .apps
+        .get(app_name)
         .ok_or_else(|| color_eyre::eyre::eyre!("App '{}' not found.", app_name))?;
-    let origin = local.link_paths.get(app_name)
+    let origin = local
+        .link_paths
+        .get(app_name)
         .ok_or_else(|| color_eyre::eyre::eyre!("No link path for '{}'.", app_name))?;
     let pdir = app::profile_dir(&roost_dir, &profile_name);
     linker::unlink(origin, &pdir, app_name, app_entry.is_dir)?;
@@ -218,7 +333,7 @@ fn cmd_remove(app_name: &str) -> Result<()> {
     app::save_shared(&shared_path, &shared)?;
     app::save_local(&local_path, &local)?;
     git::save(&roost_dir, &format!("remove: {}", app_name))?;
-    println!("Removed {}", app_name);
+    println!("{} {}", style("Removed").green(), style(app_name).cyan());
     Ok(())
 }
 
@@ -226,15 +341,18 @@ fn cmd_sync() -> Result<()> {
     let (_, _, roost_dir) = load_configs()?;
     let result = git::sync(&roost_dir, git::ConflictPreference::Local)?;
     match result {
-        git::SyncResult::Clean => println!("Sync complete."),
+        git::SyncResult::Clean => println!("{}", style("Sync complete.").green()),
         git::SyncResult::ConfigConflict { resolved } => {
-            println!("Config conflicts resolved:");
+            println!("{}", style("Config conflicts resolved:").yellow());
             for name in &resolved {
-                println!("  - {}", name);
+                println!("  - {}", style(name).yellow().dim());
             }
         }
         git::SyncResult::FileConflict { .. } => {
-            println!("File conflicts detected. Manual resolution required.");
+            println!(
+                "{}",
+                style("File conflicts detected. Manual resolution required.").red()
+            );
         }
     }
     Ok(())
@@ -248,8 +366,21 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
     match cmd.action {
         ProfileAction::List => {
             for name in shared.profiles.keys() {
-                let marker = if *name == local.active_profile { "*" } else { " " };
-                println!("{} {}", marker, name);
+                let active = *name == local.active_profile;
+                let marker = if active {
+                    style("*").cyan().bold().to_string()
+                } else {
+                    style(" ").to_string()
+                };
+                println!(
+                    "{} {}",
+                    marker,
+                    if active {
+                        style(name).cyan().bold()
+                    } else {
+                        style(name)
+                    },
+                );
             }
             Ok(())
         }
@@ -260,7 +391,11 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
             let old = local.active_profile.clone();
             linker::switch_profile(&old, &name, &shared, &mut local, &roost_dir)?;
             app::save_local(&local_path, &local)?;
-            println!("Switched to profile: {}", name);
+            println!(
+                "{} {}",
+                style("Switched to profile:").green(),
+                style(&name).cyan()
+            );
             Ok(())
         }
         ProfileAction::Add { name, from } => {
@@ -268,8 +403,9 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
                 bail!("Profile '{}' already exists.", name);
             }
             let new_profile = if let Some(source_name) = from {
-                let source = shared.profiles.get(&source_name)
-                    .ok_or_else(|| color_eyre::eyre::eyre!("Source profile '{}' not found.", source_name))?;
+                let source = shared.profiles.get(&source_name).ok_or_else(|| {
+                    color_eyre::eyre::eyre!("Source profile '{}' not found.", source_name)
+                })?;
                 app::Profile {
                     apps: source.apps.clone(),
                     app_sources: source.app_sources.clone(),
@@ -283,7 +419,11 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
             shared.profiles.insert(name.clone(), new_profile);
             app::save_shared(&shared_path, &shared)?;
             git::save(&roost_dir, &format!("profile: add {}", name))?;
-            println!("Created profile: {}", name);
+            println!(
+                "{} {}",
+                style("Created profile:").green(),
+                style(&name).cyan()
+            );
             Ok(())
         }
         ProfileAction::Delete { name } => {
@@ -300,16 +440,30 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
             }
             shared.profiles.remove(&name);
             if local.active_profile == name {
-                let fallback = shared.profiles.keys().next()
+                let fallback = shared
+                    .profiles
+                    .keys()
+                    .next()
                     .cloned()
                     .unwrap_or_else(|| "default".to_string());
                 local.active_profile = fallback.clone();
                 app::save_local(&local_path, &local)?;
-                println!("Active profile was deleted. Falling back to '{}'.", fallback);
+                println!(
+                    "{}",
+                    style(format!(
+                        "Active profile was deleted. Falling back to '{}'.",
+                        fallback
+                    ))
+                    .yellow()
+                );
             }
             app::save_shared(&shared_path, &shared)?;
             git::save(&roost_dir, &format!("profile: delete {}", name))?;
-            println!("Deleted profile: {}", name);
+            println!(
+                "{} {}",
+                style("Deleted profile:").green(),
+                style(&name).cyan()
+            );
             Ok(())
         }
         ProfileAction::Rename { old, new } => {
@@ -327,7 +481,9 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
                 }
             }
             for profile in shared.profiles.values_mut() {
-                let updates: Vec<(String, String)> = profile.app_sources.iter()
+                let updates: Vec<(String, String)> = profile
+                    .app_sources
+                    .iter()
                     .filter(|(_, src)| *src == &old)
                     .map(|(app_name, _)| (app_name.clone(), new.clone()))
                     .collect();
@@ -341,7 +497,12 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
             }
             app::save_shared(&shared_path, &shared)?;
             git::save(&roost_dir, &format!("profile: rename {} -> {}", old, new))?;
-            println!("Renamed profile: {} -> {}", old, new);
+            println!(
+                "{} {} {}",
+                style("Renamed profile:").green(),
+                style(&old).cyan(),
+                style(format!("→ {}", new)).dim()
+            );
             Ok(())
         }
     }
@@ -350,13 +511,17 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
 fn cmd_restore(app_name: &str) -> Result<()> {
     let (shared, local, roost_dir) = load_configs()?;
     let profile_name = &local.active_profile;
-    let app_entry = shared.apps.get(app_name)
+    let app_entry = shared
+        .apps
+        .get(app_name)
         .ok_or_else(|| color_eyre::eyre::eyre!("App '{}' not found.", app_name))?;
-    let origin = local.link_paths.get(app_name)
+    let origin = local
+        .link_paths
+        .get(app_name)
         .ok_or_else(|| color_eyre::eyre::eyre!("No link path for '{}'.", app_name))?;
     let pdir = app::profile_dir(&roost_dir, profile_name);
     linker::restore(origin, &pdir, app_name, app_entry.is_dir)?;
-    println!("Restored {}", app_name);
+    println!("{} {}", style("Restored").green(), style(app_name).cyan());
     Ok(())
 }
 
@@ -366,25 +531,38 @@ fn cmd_doctor(fix: bool) -> Result<()> {
     let mut had_warn = false;
     let profile_name = &local.active_profile;
 
-    println!("== Config Consistency ==");
+    println!("{}", style("== Config Consistency ==").bold());
     let active_profile = match shared.profiles.get(profile_name) {
         Some(p) => p,
         None => {
-            println!("[ERROR] Active profile '{}' not found in shared config", profile_name);
+            println!(
+                "{} Active profile '{}' not found in shared config",
+                style("[ERROR]").red().bold(),
+                style(profile_name).cyan()
+            );
             bail!("Active profile not found.");
         }
     };
 
     for app_name in &active_profile.apps {
         if !shared.apps.contains_key(app_name) {
-            println!("[ERROR] App '{}' in profile '{}' but missing from apps", app_name, profile_name);
+            println!(
+                "{} App '{}' in profile '{}' but missing from apps",
+                style("[ERROR]").red().bold(),
+                style(app_name).cyan(),
+                style(profile_name).dim()
+            );
             had_error = true;
         }
     }
 
     for (app_name, app) in &shared.apps {
         if app.on_profiles.is_empty() {
-            println!("[WARN] App '{}' not in any profile", app_name);
+            println!(
+                "{} App '{}' not in any profile",
+                style("[WARN]").yellow().bold(),
+                style(app_name).cyan()
+            );
             had_warn = true;
         }
     }
@@ -392,59 +570,124 @@ fn cmd_doctor(fix: bool) -> Result<()> {
     for (prof_name, profile) in &shared.profiles {
         for (app_name, source) in &profile.app_sources {
             if !shared.profiles.contains_key(source) {
-                println!("[ERROR] Profile '{}' app '{}' references non-existent source '{}'", prof_name, app_name, source);
+                println!(
+                    "{} Profile '{}' app '{}' references non-existent source '{}'",
+                    style("[ERROR]").red().bold(),
+                    style(prof_name).cyan(),
+                    style(app_name).cyan(),
+                    style(source).dim()
+                );
                 had_error = true;
             }
             if !shared.apps.contains_key(app_name) {
-                println!("[ERROR] Profile '{}' references non-existent app '{}'", prof_name, app_name);
+                println!(
+                    "{} Profile '{}' references non-existent app '{}'",
+                    style("[ERROR]").red().bold(),
+                    style(prof_name).cyan(),
+                    style(app_name).cyan()
+                );
                 had_error = true;
             }
         }
     }
 
-    println!("\n== Symlink Health ==");
+    println!("\n{}", style("== Symlink Health ==").bold());
     let link_statuses = linker::check_links(&shared, &local, &roost_dir)?;
     for status in &link_statuses {
         match status {
-            linker::LinkStatus::Ok { app, origin, target } => {
-                println!("[OK] {}: {} -> {}", app, origin.display(), target.display());
+            linker::LinkStatus::Ok {
+                app,
+                origin,
+                target,
+            } => {
+                println!(
+                    "{} {}: {} {} {}",
+                    style("[OK]").green().bold(),
+                    style(app).cyan(),
+                    style(origin.display()).dim(),
+                    style("→").dim(),
+                    style(target.display()).dim()
+                );
             }
-            linker::LinkStatus::Missing { app, origin, target } => {
-                println!("[MISSING] {}: {} -> {}", app, origin.display(), target.display());
+            linker::LinkStatus::Missing {
+                app,
+                origin,
+                target,
+            } => {
+                println!(
+                    "{} {}: {} {} {}",
+                    style("[MISSING]").yellow().bold(),
+                    style(app).cyan(),
+                    style(origin.display()).dim(),
+                    style("→").dim(),
+                    style(target.display()).dim()
+                );
                 had_warn = true;
             }
-            linker::LinkStatus::Broken { app, origin, actual, expected } => {
-                println!("[ERROR] {}: {} -> {} (expected {})", app, origin.display(), actual.display(), expected.display());
+            linker::LinkStatus::Broken {
+                app,
+                origin,
+                actual,
+                expected,
+            } => {
+                println!(
+                    "{} {}: {} {} {} (expected {})",
+                    style("[ERROR]").red().bold(),
+                    style(app).cyan(),
+                    style(origin.display()).dim(),
+                    style("→").dim(),
+                    style(actual.display()).dim(),
+                    style(expected.display()).dim()
+                );
                 had_error = true;
             }
             linker::LinkStatus::Conflict { app, origin } => {
-                println!("[CONFLICT] {}: {} exists as real file/dir", app, origin.display());
+                println!(
+                    "{} {}: {} exists as real file/dir",
+                    style("[CONFLICT]").red().bold(),
+                    style(app).cyan(),
+                    style(origin.display()).dim()
+                );
                 had_error = true;
             }
             linker::LinkStatus::NoLinkPath { app } => {
-                println!("[WARN] {}: no link path configured", app);
+                println!(
+                    "{} {}: no link path configured",
+                    style("[WARN]").yellow().bold(),
+                    style(app).cyan()
+                );
                 had_warn = true;
             }
         }
     }
 
-    println!("\n== Orphan Detection ==");
+    println!("\n{}", style("== Orphan Detection ==").bold());
     let orphans = linker::find_orphans(&shared, &roost_dir)?;
     for orphan in &orphans {
         let kind = if orphan.is_dir { "dir" } else { "file" };
-        println!("[WARN] Profile '{}' has orphaned {}: '{}'", orphan.profile, kind, orphan.name);
+        println!(
+            "{} Profile '{}' has orphaned {}: '{}'",
+            style("[WARN]").yellow().bold(),
+            style(&orphan.profile).cyan(),
+            kind,
+            style(&orphan.name).cyan()
+        );
         had_warn = true;
     }
     if orphans.is_empty() {
-        println!("No orphans found.");
+        println!("{}", style("No orphans found.").green());
     }
 
     if fix {
         let actions = linker::ensure_links(&shared, &local, &roost_dir)?;
         if !actions.is_empty() {
-            println!("\n== Auto-fix ==");
+            println!("\n{}", style("== Auto-fix ==").bold());
             for action in &actions {
-                println!("[FIXED] {}", action);
+                println!(
+                    "{} {}",
+                    style("[FIXED]").green().bold(),
+                    style(action).green()
+                );
             }
         }
     }
@@ -453,9 +696,12 @@ fn cmd_doctor(fix: bool) -> Result<()> {
     if had_error {
         bail!("Doctor found errors.");
     } else if had_warn {
-        println!("Doctor found warnings. Run `roost adopt` to register orphaned apps.");
+        println!(
+            "{}",
+            style("Doctor found warnings. Run `roost adopt` to register orphaned apps.").yellow()
+        );
     } else {
-        println!("All checks passed.");
+        println!("{}", style("All checks passed.").green());
     }
     Ok(())
 }
@@ -493,11 +739,12 @@ fn cmd_adopt() -> Result<()> {
     }
 
     if orphans.is_empty() {
-        println!("No orphaned apps found.");
+        println!("{}", style("No orphaned apps found.").dim());
         return Ok(());
     }
 
-    let items: Vec<String> = orphans.iter()
+    let items: Vec<String> = orphans
+        .iter()
         .map(|(name, is_dir)| format!("{} ({})", name, if *is_dir { "dir" } else { "file" }))
         .collect();
 
@@ -513,25 +760,31 @@ fn cmd_adopt() -> Result<()> {
 
     for idx in &selected {
         let (name, is_dir) = &orphans[*idx];
-        shared.apps.insert(name.clone(), app::Application {
-            primary_config: None,
-            on_profiles: {
-                let mut s = std::collections::BTreeSet::new();
-                s.insert(profile_name.clone());
-                s
+        shared.apps.insert(
+            name.clone(),
+            app::Application {
+                primary_config: None,
+                on_profiles: {
+                    let mut s = std::collections::BTreeSet::new();
+                    s.insert(profile_name.clone());
+                    s
+                },
+                is_dir: *is_dir,
             },
-            is_dir: *is_dir,
-        });
+        );
         if let Some(profile) = shared.profiles.get_mut(&profile_name) {
             profile.apps.insert(name.clone());
         }
-        println!("Adopted {}", name);
+        println!("{} {}", style("Adopted").green(), style(name).cyan());
     }
 
     app::save_shared(&shared_path, &shared)?;
     app::save_local(&local_path, &local)?;
     git::save(&roost_dir, "adopt: registered orphaned apps")?;
 
-    println!("Done. Run `roost doctor` to verify symlinks.");
+    println!(
+        "{}",
+        style("Done. Run `roost doctor` to verify symlinks.").green()
+    );
     Ok(())
 }

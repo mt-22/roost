@@ -121,6 +121,10 @@ pub fn sync(
         bail!("no remote configured");
     }
 
+    if is_dirty(roost_dir)? {
+        save(roost_dir, "sync: auto-save pending edits")?;
+    }
+
     run_git(roost_dir, &["fetch", "origin"])?;
 
     let local_head = run_git(roost_dir, &["rev-parse", "HEAD"])?;
