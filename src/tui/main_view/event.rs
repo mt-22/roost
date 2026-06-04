@@ -77,7 +77,17 @@ pub fn handle_event(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
         return handle_undo(state, key);
     }
 
-    // 8. Base panel input.
+    // 8. App link dialog.
+    if state.app_link_dialog.is_some() {
+        return handle_app_link(state, key);
+    }
+
+    // 9. Diff view dialog.
+    if state.diff_view.is_some() {
+        return handle_diff_view(state, key);
+    }
+
+    // 10. Base panel input.
     handle_base(state, key)
 }
 
@@ -402,14 +412,16 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             vec![Action::Nop]
         }
         KeyCode::Char('f') if state.focus == Focus::AppsPanel => {
-            vec![Action::SetStatus(
-                "Import-from dialog not yet implemented — use `roost import`".to_string(),
-            )]
+            state.app_link_dialog = Some(crate::tui::main_view::dialogs::AppLinkState::new(
+                crate::tui::main_view::dialogs::AppLinkAction::Import,
+            ));
+            vec![Action::Nop]
         }
         KeyCode::Char('m') if state.focus == Focus::AppsPanel => {
-            vec![Action::SetStatus(
-                "Paste-into dialog not yet implemented — use `roost copy`".to_string(),
-            )]
+            state.app_link_dialog = Some(crate::tui::main_view::dialogs::AppLinkState::new(
+                crate::tui::main_view::dialogs::AppLinkAction::Copy,
+            ));
+            vec![Action::Nop]
         }
 
         // Files-panel actions
@@ -457,7 +469,18 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             }
             vec![Action::Nop]
         }
-        KeyCode::Char('d') => vec![Action::OpenPager("git_diff".to_string())],
+        KeyCode::Char('d') => {
+            let roost_dir = state.roost_dir.clone();
+            match crate::git::diff(&roost_dir) {
+                Ok(diff_text) => {
+                    state.diff_view = Some(crate::tui::main_view::dialogs::DiffViewState::new(&diff_text));
+                }
+                Err(e) => {
+                    return vec![Action::SetStatus(format!("Diff error: {}", e))];
+                }
+            }
+            vec![Action::Nop]
+        }
         KeyCode::Char('u') => {
             let roost_dir = state.roost_dir.clone();
             match crate::git::log(&roost_dir, 1) {
@@ -735,6 +758,123 @@ fn handle_undo(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
         KeyCode::Char('n') | KeyCode::Char('N') => {
             state.undo_dialog = None;
             vec![Action::Nop]
+        }
+        _ => vec![Action::Nop],
+    }
+}
+
+// ------------------------------------------------------------------
+// App link dialog
+// ------------------------------------------------------------------
+
+fn handle_app_link(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
+    use crate::tui::main_view::dialogs::AppLinkStep;
+
+    let Some(ref mut app_link) = state.app_link_dialog else {
+        return vec![Action::Nop];
+    };
+
+    let step = app_link.step;
+
+    match key.code {
+        KeyCode::Esc => {
+            state.app_link_dialog = None;
+            vec![Action::Nop]
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app_link.move_up();
+            vec![Action::Nop]
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let max = match step {
+                AppLinkStep::PickProfile => state.shared.profiles.len(),
+                AppLinkStep::PickApp => {
+                    if let Some(ref profile) = app_link.selected_profile {
+                        state.shared.profiles.get(profile).map(|p| p.apps.len()).unwrap_or(0)
+                    } else {
+                        0
+                    }
+                }
+                AppLinkStep::ConfirmCopy => 0,
+            };
+            app_link.move_down(max);
+            vec![Action::Nop]
+        }
+        KeyCode::Enter => {
+            match step {
+                AppLinkStep::PickProfile => {
+                    let mut names: Vec<&String> = state.shared.profiles.keys().collect();
+                    names.sort();
+                    if let Some(name) = names.get(app_link.cursor) {
+                        let name = name.to_string();
+                        app_link.selected_profile = Some(name);
+                        app_link.advance_step();
+                    }
+                }
+                AppLinkStep::PickApp => {
+                    if let Some(ref profile) = app_link.selected_profile {
+                        let mut apps: Vec<&String> = state
+                            .shared
+                            .profiles
+                            .get(profile)
+                            .map(|p| p.apps.iter().collect())
+                            .unwrap_or_default();
+                        apps.sort();
+                        if let Some(app) = apps.get(app_link.cursor) {
+                            let app_name = app.to_string();
+                            let source = profile.clone();
+                            state.app_link_dialog = None;
+                            return vec![Action::ImportApp {
+                                app: app_name,
+                                source_profile: source,
+                            }];
+                        }
+                    }
+                }
+                AppLinkStep::ConfirmCopy => {
+                    if let Some(ref profile) = app_link.selected_profile {
+                        let target = profile.clone();
+                        if let Some(app) = state.selected_app().cloned() {
+                            state.app_link_dialog = None;
+                            return vec![Action::CopyApp {
+                                app,
+                                target_profile: target,
+                            }];
+                        }
+                    }
+                }
+            }
+            vec![Action::Nop]
+        }
+        _ => vec![Action::Nop],
+    }
+}
+
+// ------------------------------------------------------------------
+// Diff view dialog
+// ------------------------------------------------------------------
+
+fn handle_diff_view(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
+    let Some(ref mut diff) = state.diff_view else {
+        return vec![Action::Nop];
+    };
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            state.diff_view = None;
+            vec![Action::Nop]
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            diff.scroll_up();
+            vec![Action::Nop]
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            diff.scroll_down(1);
+            vec![Action::Nop]
+        }
+        KeyCode::Char('e') => {
+            state.diff_view = None;
+            vec![Action::OpenPager("git_diff".to_string())]
         }
         _ => vec![Action::Nop],
     }

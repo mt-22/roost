@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::app::{LocalAppConfig, SharedAppConfig};
 use crate::miller::MillerColumns;
 use crate::tui::confirm::ConfirmDialog;
-use crate::tui::main_view::dialogs::{GitLogState, HelpState, IgnoreState, ProfileState, UndoState};
+use crate::tui::main_view::dialogs::{AppLinkState, DiffViewState, GitLogState, HelpState, IgnoreState, ProfileState, UndoState};
 use crate::tui::search::FuzzyEngine;
 
 /// Which panel currently receives keyboard input.
@@ -71,8 +71,7 @@ pub enum SearchTarget {
 // Placeholder dialog states — fleshed out in Stream 3 (Dialog System)
 // ------------------------------------------------------------------
 
-pub struct AppLinkState;
-pub struct DiffViewState;
+
 
 impl MainViewState {
     /// Build initial state. The Miller columns start at the active profile root.

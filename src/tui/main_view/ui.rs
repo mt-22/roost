@@ -46,6 +46,12 @@ pub fn render(state: &mut MainViewState, frame: &mut Frame) {
     if let Some(ref undo) = state.undo_dialog {
         render_undo_dialog(frame, undo);
     }
+    if let Some(ref app_link) = state.app_link_dialog {
+        render_app_link_dialog(frame, app_link, state);
+    }
+    if let Some(ref diff) = state.diff_view {
+        render_diff_view_dialog(frame, diff);
+    }
 }
 
 // ------------------------------------------------------------------
@@ -430,11 +436,47 @@ fn render_profile_dialog(
         return;
     }
 
+    // Split inner area into content + footer hint
+    let chunks = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .split(inner);
+    let content_area = chunks[0];
+    let hint_area = chunks[1];
+
+    // Footer hint showing all modes with current one highlighted
+    let switch_style = if profile.mode == ProfileMode::Switch {
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let create_style = if profile.mode == ProfileMode::Create {
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let delete_style = if profile.mode == ProfileMode::Delete {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let hint_line = Line::from(vec![
+        Span::styled("Switch", switch_style),
+        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+        Span::styled("Create", create_style),
+        Span::styled(" | ", Style::default().fg(Color::DarkGray)),
+        Span::styled("Delete", delete_style),
+        Span::styled("  — Tab to cycle", Style::default().fg(Color::DarkGray)),
+    ]);
+    frame.render_widget(Paragraph::new(hint_line).alignment(ratatui::layout::Alignment::Center), hint_area);
+
     match profile.mode {
         ProfileMode::Switch | ProfileMode::Delete => {
             let mut names: Vec<&String> = state.shared.profiles.keys().collect();
             names.sort();
-            let visible = inner.height as usize;
+            let visible = content_area.height as usize;
             let total = names.len();
             let (scroll, end) = profile.scroll_for_visible(visible, total);
 
@@ -450,7 +492,7 @@ fn render_profile_dialog(
                     let line = Line::from(vec![
                         Span::styled(marker, Style::default().fg(Color::Green)),
                         Span::styled(
-                            truncate_str(name, inner.width as usize - 4),
+                            truncate_str(name, content_area.width as usize - 4),
                             Style::default().fg(Color::White),
                         ),
                     ]);
@@ -467,15 +509,15 @@ fn render_profile_dialog(
             let mut list_state = ListState::default();
             let cursor_in_view = profile.cursor.saturating_sub(scroll);
             list_state.select(Some(cursor_in_view));
-            frame.render_stateful_widget(list, inner, &mut list_state);
+            frame.render_stateful_widget(list, content_area, &mut list_state);
         }
         ProfileMode::Create => {
             let chunks = Layout::vertical([
                 Constraint::Length(1), // name input
                 Constraint::Length(1), // copy current toggle
-                Constraint::Min(1),   // hint
+                Constraint::Min(1),   // space
             ])
-            .split(inner);
+            .split(content_area);
 
             let input_line = Line::from(vec![
                 Span::styled("Name: ", Style::default().fg(Color::Yellow)),
@@ -691,6 +733,195 @@ fn render_undo_dialog(frame: &mut Frame, undo: &crate::tui::main_view::dialogs::
     ]);
     let buttons_para = Paragraph::new(buttons).alignment(ratatui::layout::Alignment::Center);
     frame.render_widget(buttons_para, chunks[1]);
+}
+
+fn render_app_link_dialog(
+    frame: &mut Frame,
+    app_link: &crate::tui::main_view::dialogs::AppLinkState,
+    state: &MainViewState,
+) {
+    use crate::tui::main_view::dialogs::{AppLinkAction, AppLinkStep};
+
+    let area = frame.area();
+    let width = 60u16.min(area.width.saturating_sub(4)).max(30);
+    let height = 20u16.min(area.height.saturating_sub(4)).max(8);
+    let popup_x = (area.width.saturating_sub(width)) / 2;
+    let popup_y = (area.height.saturating_sub(height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, width, height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let border_color = if app_link.action == AppLinkAction::Import {
+        Color::Cyan
+    } else {
+        Color::Yellow
+    };
+
+    let action_label = if app_link.action == AppLinkAction::Import {
+        "Import From"
+    } else {
+        "Paste Into"
+    };
+
+    let step_label = match app_link.step {
+        AppLinkStep::PickProfile => "Pick Profile",
+        AppLinkStep::PickApp => "Pick App",
+        AppLinkStep::ConfirmCopy => "Confirm",
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color))
+        .title(format!(" {} — {} ", action_label, step_label));
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    match app_link.step {
+        AppLinkStep::PickProfile => {
+            let mut names: Vec<&String> = state.shared.profiles.keys().collect();
+            names.sort();
+            let visible = inner.height as usize;
+            let total = names.len();
+            let (scroll, end) = app_link.scroll_for_visible(visible, total);
+
+            let items: Vec<ListItem> = names
+                .iter()
+                .enumerate()
+                .skip(scroll)
+                .take(end - scroll)
+                .map(|(i, name)| {
+                    let is_cursor = i == app_link.cursor;
+                    let is_active = **name == state.local.active_profile;
+                    let marker = if is_active { "★ " } else { "  " };
+                    let line = Line::from(vec![
+                        Span::styled(marker, Style::default().fg(Color::Green)),
+                        Span::styled(
+                            truncate_str(name, inner.width as usize - 4),
+                            Style::default().fg(Color::White),
+                        ),
+                    ]);
+                    let style = if is_cursor {
+                        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(line).style(style)
+                })
+                .collect();
+
+            let list = List::new(items);
+            let mut list_state = ListState::default();
+            let cursor_in_view = app_link.cursor.saturating_sub(scroll);
+            list_state.select(Some(cursor_in_view));
+            frame.render_stateful_widget(list, inner, &mut list_state);
+        }
+        AppLinkStep::PickApp => {
+            if let Some(ref profile) = app_link.selected_profile {
+                let mut apps: Vec<&String> = state
+                    .shared
+                    .profiles
+                    .get(profile)
+                    .map(|p| p.apps.iter().collect())
+                    .unwrap_or_default();
+                apps.sort();
+                let visible = inner.height as usize;
+                let total = apps.len();
+                let (scroll, end) = app_link.scroll_for_visible(visible, total);
+
+                let items: Vec<ListItem> = apps
+                    .iter()
+                    .enumerate()
+                    .skip(scroll)
+                    .take(end - scroll)
+                    .map(|(i, app)| {
+                        let is_cursor = i == app_link.cursor;
+                        let line = Line::from(vec![
+                            Span::styled(
+                                truncate_str(app, inner.width as usize - 4),
+                                Style::default().fg(Color::White),
+                            ),
+                        ]);
+                        let style = if is_cursor {
+                            Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default()
+                        };
+                        ListItem::new(line).style(style)
+                    })
+                    .collect();
+
+                let list = List::new(items);
+                let mut list_state = ListState::default();
+                let cursor_in_view = app_link.cursor.saturating_sub(scroll);
+                list_state.select(Some(cursor_in_view));
+                frame.render_stateful_widget(list, inner, &mut list_state);
+            }
+        }
+        AppLinkStep::ConfirmCopy => {
+            if let Some(ref profile) = app_link.selected_profile {
+                if let Some(app) = state.selected_app() {
+                    let confirm_text = format!("Copy '{}' to profile '{}' ?", app, profile);
+                    let line = Line::from(vec![
+                        Span::styled(confirm_text, Style::default().fg(Color::White)),
+                    ]);
+                    frame.render_widget(Paragraph::new(line), inner);
+                }
+            }
+        }
+    }
+}
+
+fn render_diff_view_dialog(frame: &mut Frame, diff: &crate::tui::main_view::dialogs::DiffViewState) {
+    let area = frame.area();
+    let width = 72u16.min(area.width.saturating_sub(4)).max(40);
+    let height = (area.height as f32 * 0.8) as u16;
+    let popup_x = (area.width.saturating_sub(width)) / 2;
+    let popup_y = (area.height.saturating_sub(height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, width, height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(" Diff ");
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let visible = inner.height as usize;
+    let end = (diff.scroll + visible).min(diff.lines.len());
+
+    let lines: Vec<Line> = diff.lines
+        .iter()
+        .skip(diff.scroll)
+        .take(end - diff.scroll)
+        .map(|line| {
+            let color = if line.starts_with('+') {
+                Color::Green
+            } else if line.starts_with('-') {
+                Color::Red
+            } else if line.starts_with("@@") {
+                Color::Cyan
+            } else {
+                Color::White
+            };
+            Line::from(Span::styled(
+                truncate_str(line, inner.width as usize),
+                Style::default().fg(color),
+            ))
+        })
+        .collect();
+
+    let paragraph = Paragraph::new(lines);
+    frame.render_widget(paragraph, inner);
 }
 
 fn truncate_str(s: &str, max_width: usize) -> String {
