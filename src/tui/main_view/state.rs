@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::app::{LocalAppConfig, SharedAppConfig};
 use crate::miller::MillerColumns;
 use crate::tui::confirm::ConfirmDialog;
+use crate::tui::main_view::dialogs::{GitLogState, HelpState, IgnoreState, ProfileState, UndoState};
 use crate::tui::search::FuzzyEngine;
 
 /// Which panel currently receives keyboard input.
@@ -70,11 +71,6 @@ pub enum SearchTarget {
 // Placeholder dialog states — fleshed out in Stream 3 (Dialog System)
 // ------------------------------------------------------------------
 
-pub struct HelpState;
-pub struct ProfileState;
-pub struct IgnoreState;
-pub struct GitLogState;
-pub struct UndoState;
 pub struct AppLinkState;
 pub struct DiffViewState;
 

@@ -31,6 +31,21 @@ pub fn render(state: &mut MainViewState, frame: &mut Frame) {
     if let Some(ref dialog) = state.confirm_dialog {
         render_confirm_dialog(frame, dialog);
     }
+    if let Some(ref help) = state.help_dialog {
+        render_help_dialog(frame, help);
+    }
+    if let Some(ref profile) = state.profile_dialog {
+        render_profile_dialog(frame, profile, state);
+    }
+    if let Some(ref ignore) = state.ignore_dialog {
+        render_ignore_dialog(frame, ignore, state);
+    }
+    if let Some(ref git_log) = state.git_log_dialog {
+        render_git_log_dialog(frame, git_log);
+    }
+    if let Some(ref undo) = state.undo_dialog {
+        render_undo_dialog(frame, undo);
+    }
 }
 
 // ------------------------------------------------------------------
@@ -317,6 +332,366 @@ fn render_search_overlay(_state: &MainViewState, frame: &mut Frame, search: &cra
 // ------------------------------------------------------------------
 // Helpers
 // ------------------------------------------------------------------
+
+fn render_help_dialog(frame: &mut Frame, help: &crate::tui::main_view::dialogs::HelpState) {
+    let area = frame.area();
+    let width = 72u16.min(area.width.saturating_sub(4)).max(40);
+    let height = 24u16.min(area.height.saturating_sub(4)).max(10);
+    let popup_x = (area.width.saturating_sub(width)) / 2;
+    let popup_y = (area.height.saturating_sub(height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, width, height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(" Help ");
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let visible = inner.height as usize;
+    let total = crate::tui::main_view::dialogs::KEYBINDS.len();
+    let (scroll, end) = help.scroll_for_visible(visible, total);
+
+    let items: Vec<ListItem> = crate::tui::main_view::dialogs::KEYBINDS
+        .iter()
+        .enumerate()
+        .skip(scroll)
+        .take(end - scroll)
+        .map(|(i, entry)| {
+            let is_cursor = i == help.cursor;
+            let line = Line::from(vec![
+                Span::styled(
+                    format!("{:>12}", entry.key),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    truncate_str(entry.description, inner.width as usize - 14),
+                    Style::default().fg(Color::White),
+                ),
+            ]);
+            let style = if is_cursor {
+                Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            ListItem::new(line).style(style)
+        })
+        .collect();
+
+    let list = List::new(items);
+    let mut list_state = ListState::default();
+    let cursor_in_view = help.cursor.saturating_sub(scroll);
+    list_state.select(Some(cursor_in_view));
+    frame.render_stateful_widget(list, inner, &mut list_state);
+}
+
+fn render_profile_dialog(
+    frame: &mut Frame,
+    profile: &crate::tui::main_view::dialogs::ProfileState,
+    state: &MainViewState,
+) {
+    use crate::tui::main_view::dialogs::ProfileMode;
+
+    let area = frame.area();
+    let width = 50u16.min(area.width.saturating_sub(4)).max(30);
+    let height = 20u16.min(area.height.saturating_sub(4)).max(8);
+    let popup_x = (area.width.saturating_sub(width)) / 2;
+    let popup_y = (area.height.saturating_sub(height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, width, height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let border_color = match profile.mode {
+        ProfileMode::Delete => Color::Red,
+        _ => Color::Yellow,
+    };
+
+    let mode_title = match profile.mode {
+        ProfileMode::Switch => "Switch",
+        ProfileMode::Create => "Create",
+        ProfileMode::Delete => "Delete",
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color))
+        .title(format!(" Profile — {} ", mode_title));
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    match profile.mode {
+        ProfileMode::Switch | ProfileMode::Delete => {
+            let mut names: Vec<&String> = state.shared.profiles.keys().collect();
+            names.sort();
+            let visible = inner.height as usize;
+            let total = names.len();
+            let (scroll, end) = profile.scroll_for_visible(visible, total);
+
+            let items: Vec<ListItem> = names
+                .iter()
+                .enumerate()
+                .skip(scroll)
+                .take(end - scroll)
+                .map(|(i, name)| {
+                    let is_cursor = i == profile.cursor;
+                    let is_active = **name == state.local.active_profile;
+                    let marker = if is_active { "★ " } else { "  " };
+                    let line = Line::from(vec![
+                        Span::styled(marker, Style::default().fg(Color::Green)),
+                        Span::styled(
+                            truncate_str(name, inner.width as usize - 4),
+                            Style::default().fg(Color::White),
+                        ),
+                    ]);
+                    let style = if is_cursor {
+                        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(line).style(style)
+                })
+                .collect();
+
+            let list = List::new(items);
+            let mut list_state = ListState::default();
+            let cursor_in_view = profile.cursor.saturating_sub(scroll);
+            list_state.select(Some(cursor_in_view));
+            frame.render_stateful_widget(list, inner, &mut list_state);
+        }
+        ProfileMode::Create => {
+            let chunks = Layout::vertical([
+                Constraint::Length(1), // name input
+                Constraint::Length(1), // copy current toggle
+                Constraint::Min(1),   // hint
+            ])
+            .split(inner);
+
+            let input_line = Line::from(vec![
+                Span::styled("Name: ", Style::default().fg(Color::Yellow)),
+                Span::styled(&profile.input, Style::default().fg(Color::White)),
+                Span::styled("_", Style::default().fg(Color::Yellow)),
+            ]);
+            frame.render_widget(Paragraph::new(input_line), chunks[0]);
+
+            let toggle = if profile.copy_current {
+                "[x] Copy apps from current profile"
+            } else {
+                "[ ] Start empty"
+            };
+            let toggle_line = Line::from(vec![
+                Span::styled("Space ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(toggle, Style::default().fg(Color::White)),
+            ]);
+            frame.render_widget(Paragraph::new(toggle_line), chunks[1]);
+
+            let hint = Line::from(vec![
+                Span::styled("Tab: cycle modes  Enter: create", Style::default().fg(Color::DarkGray)),
+            ]);
+            frame.render_widget(Paragraph::new(hint), chunks[2]);
+        }
+    }
+}
+
+fn render_ignore_dialog(
+    frame: &mut Frame,
+    ignore: &crate::tui::main_view::dialogs::IgnoreState,
+    state: &MainViewState,
+) {
+    use crate::tui::main_view::dialogs::IgnoreMode;
+
+    let area = frame.area();
+    let width = 60u16.min(area.width.saturating_sub(4)).max(30);
+    let height = 20u16.min(area.height.saturating_sub(4)).max(8);
+    let popup_x = (area.width.saturating_sub(width)) / 2;
+    let popup_y = (area.height.saturating_sub(height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, width, height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let mode_title = match ignore.mode {
+        IgnoreMode::Add => "Add",
+        IgnoreMode::Remove => "Remove",
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(format!(" Ignore — {} ", mode_title));
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    match ignore.mode {
+        IgnoreMode::Add => {
+            let chunks = Layout::vertical([
+                Constraint::Length(1), // input
+                Constraint::Min(1),   // hint
+            ])
+            .split(inner);
+
+            let input_line = Line::from(vec![
+                Span::styled("Pattern: ", Style::default().fg(Color::Yellow)),
+                Span::styled(&ignore.input, Style::default().fg(Color::White)),
+                Span::styled("_", Style::default().fg(Color::Yellow)),
+            ]);
+            frame.render_widget(Paragraph::new(input_line), chunks[0]);
+
+            let hint = Line::from(vec![
+                Span::styled("Tab: cycle modes  Enter: add  Esc: close", Style::default().fg(Color::DarkGray)),
+            ]);
+            frame.render_widget(Paragraph::new(hint), chunks[1]);
+        }
+        IgnoreMode::Remove => {
+            let mut patterns: Vec<&String> = state.shared.ignored.iter().collect();
+            patterns.sort();
+            let visible = inner.height as usize;
+            let total = patterns.len();
+            let (scroll, end) = ignore.scroll_for_visible(visible, total);
+
+            let items: Vec<ListItem> = patterns
+                .iter()
+                .enumerate()
+                .skip(scroll)
+                .take(end - scroll)
+                .map(|(i, pat)| {
+                    let is_cursor = i == ignore.cursor;
+                    let line = Line::from(vec![
+                        Span::styled(
+                            truncate_str(pat, inner.width as usize - 4),
+                            Style::default().fg(Color::White),
+                        ),
+                    ]);
+                    let style = if is_cursor {
+                        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(line).style(style)
+                })
+                .collect();
+
+            let list = List::new(items);
+            let mut list_state = ListState::default();
+            let cursor_in_view = ignore.cursor.saturating_sub(scroll);
+            list_state.select(Some(cursor_in_view));
+            frame.render_stateful_widget(list, inner, &mut list_state);
+        }
+    }
+}
+
+fn render_git_log_dialog(frame: &mut Frame, git_log: &crate::tui::main_view::dialogs::GitLogState) {
+    let area = frame.area();
+    let width = 58u16.min(area.width.saturating_sub(4)).max(40);
+    let height = 20u16.min(area.height.saturating_sub(4)).max(10);
+    let popup_x = (area.width.saturating_sub(width)) / 2;
+    let popup_y = (area.height.saturating_sub(height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, width, height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(" Git Log ");
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let visible = inner.height as usize;
+    let _total = git_log.commits.len();
+    let (scroll, end) = git_log.scroll_for_visible(visible);
+
+    let items: Vec<ListItem> = git_log.commits
+        .iter()
+        .enumerate()
+        .skip(scroll)
+        .take(end - scroll)
+        .map(|(i, commit)| {
+            let is_cursor = i == git_log.cursor;
+            let short_hash = &commit.hash[..commit.hash.len().min(7)];
+            let line = Line::from(vec![
+                Span::styled(
+                    format!("{:<7} ", short_hash),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    truncate_str(&commit.message, inner.width as usize - 10),
+                    Style::default().fg(Color::White),
+                ),
+            ]);
+            let style = if is_cursor {
+                Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            ListItem::new(line).style(style)
+        })
+        .collect();
+
+    let list = List::new(items);
+    let mut list_state = ListState::default();
+    let cursor_in_view = git_log.cursor.saturating_sub(scroll);
+    list_state.select(Some(cursor_in_view));
+    frame.render_stateful_widget(list, inner, &mut list_state);
+}
+
+fn render_undo_dialog(frame: &mut Frame, undo: &crate::tui::main_view::dialogs::UndoState) {
+    let area = frame.area();
+    let width = 50u16.min(area.width.saturating_sub(4)).max(30);
+    let popup_x = (area.width.saturating_sub(width)) / 2;
+
+    let _text_width = (width as usize).saturating_sub(4);
+    let lines_needed = undo.message.lines().count().max(1);
+    let height = (lines_needed as u16 + 5).min(area.height.saturating_sub(4)).max(6);
+    let popup_y = (area.height.saturating_sub(height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, width, height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red))
+        .title(" Undo ");
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let chunks = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .split(inner);
+
+    let message_lines: Vec<Line> = undo.message.lines()
+        .map(|line| Line::from(Span::styled(line.to_string(), Style::default().fg(Color::White))))
+        .collect();
+    let message_para = Paragraph::new(message_lines);
+    frame.render_widget(message_para, chunks[0]);
+
+    let buttons = Line::from(vec![
+        Span::styled("y", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(" / ", Style::default().fg(Color::DarkGray)),
+        Span::styled("n", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+    ]);
+    let buttons_para = Paragraph::new(buttons).alignment(ratatui::layout::Alignment::Center);
+    frame.render_widget(buttons_para, chunks[1]);
+}
 
 fn truncate_str(s: &str, max_width: usize) -> String {
     if s.chars().count() <= max_width {

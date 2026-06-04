@@ -123,7 +123,13 @@ fn run_loop(
 fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
     match action {
         Action::Quit => state.quit = true,
-        Action::SetStatus(msg) => state.status_message = Some(msg),
+        Action::SetStatus(msg) => {
+            if msg.starts_with("rollback_pending:") {
+                // Marker from git log dialog; the confirm dialog handler will pick this up
+            } else {
+                state.status_message = Some(msg);
+            }
+        }
         Action::AutoCommit(msg) => state.pending_auto_commit = Some(msg),
         Action::RemoveApp(app) => {
             // TODO: full remove logic in Stream 3/4
@@ -202,15 +208,27 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             state.sync_miller_to_selected_app();
         }
         Action::Nop => {}
-        // Dialog stubs — will be wired in Stream 3
         Action::CreateProfile { name, copy_current } => {
-            state.status_message = Some(format!(
-                "Create profile '{}' (copy_current={}) not yet implemented",
-                name, copy_current
-            ));
+            let mut profile = crate::app::Profile {
+                apps: std::collections::BTreeSet::new(),
+                app_sources: std::collections::BTreeMap::new(),
+            };
+            if copy_current {
+                if let Some(current) = state.shared.profiles.get(&state.local.active_profile) {
+                    profile.apps = current.apps.clone();
+                    profile.app_sources = current.app_sources.clone();
+                }
+            }
+            state.shared.profiles.insert(name.clone(), profile);
+            let shared_path = app::shared_config_path(&state.roost_dir);
+            let _ = app::save_shared(&shared_path, &state.shared);
+            state.status_message = Some(format!("Created profile '{}'", name));
         }
         Action::DeleteProfile(name) => {
-            state.status_message = Some(format!("Delete profile '{}' not yet implemented", name));
+            state.shared.profiles.remove(&name);
+            let shared_path = app::shared_config_path(&state.roost_dir);
+            let _ = app::save_shared(&shared_path, &state.shared);
+            state.status_message = Some(format!("Deleted profile '{}'", name));
         }
         Action::ImportApp { app, source_profile } => {
             state.status_message = Some(format!(
@@ -225,16 +243,42 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             ));
         }
         Action::AddIgnore(pattern) => {
-            state.status_message = Some(format!("Add ignore '{}' not yet implemented", pattern));
+            state.shared.ignored.insert(pattern.clone());
+            let shared_path = app::shared_config_path(&state.roost_dir);
+            let _ = app::save_shared(&shared_path, &state.shared);
+            let _ = crate::gitignore::regenerate(&state.roost_dir, &state.shared.ignored, &state.shared.apps);
+            state.status_message = Some(format!("Added ignore pattern '{}'", pattern));
         }
         Action::RemoveIgnore(pattern) => {
-            state.status_message = Some(format!("Remove ignore '{}' not yet implemented", pattern));
+            state.shared.ignored.remove(&pattern);
+            let shared_path = app::shared_config_path(&state.roost_dir);
+            let _ = app::save_shared(&shared_path, &state.shared);
+            let _ = crate::gitignore::regenerate(&state.roost_dir, &state.shared.ignored, &state.shared.apps);
+            state.status_message = Some(format!("Removed ignore pattern '{}'", pattern));
         }
         Action::Undo => {
-            state.status_message = Some("Undo not yet implemented".to_string());
+            let roost_dir = state.roost_dir.clone();
+            let result = suspend_and_run(|| {
+                crate::git::undo(&roost_dir, 1)?;
+                Ok(())
+            });
+            state.needs_redraw = true;
+            match result {
+                Ok(()) => state.status_message = Some("Undone last commit".to_string()),
+                Err(e) => state.status_message = Some(format!("Undo failed: {}", e)),
+            }
         }
         Action::Rollback(hash) => {
-            state.status_message = Some(format!("Rollback to {} not yet implemented", hash));
+            let roost_dir = state.roost_dir.clone();
+            let result = suspend_and_run(|| {
+                crate::git::rollback(&roost_dir, &hash)?;
+                Ok(())
+            });
+            state.needs_redraw = true;
+            match result {
+                Ok(()) => state.status_message = Some(format!("Rolled back to {}", &hash[..hash.len().min(7)])),
+                Err(e) => state.status_message = Some(format!("Rollback failed: {}", e)),
+            }
         }
     }
     Ok(())

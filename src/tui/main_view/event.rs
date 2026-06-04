@@ -52,7 +52,32 @@ pub fn handle_event(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
         return handle_search(state, key);
     }
 
-    // 3. Base panel input.
+    // 3. Help dialog.
+    if state.help_dialog.is_some() {
+        return handle_help(state, key);
+    }
+
+    // 4. Profile dialog.
+    if state.profile_dialog.is_some() {
+        return handle_profile(state, key);
+    }
+
+    // 5. Ignore dialog.
+    if state.ignore_dialog.is_some() {
+        return handle_ignore(state, key);
+    }
+
+    // 6. Git log dialog.
+    if state.git_log_dialog.is_some() {
+        return handle_git_log(state, key);
+    }
+
+    // 7. Undo dialog.
+    if state.undo_dialog.is_some() {
+        return handle_undo(state, key);
+    }
+
+    // 8. Base panel input.
     handle_base(state, key)
 }
 
@@ -81,16 +106,27 @@ fn handle_confirm(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
         state.confirm_dialog = None;
 
         if !result {
+            // Clear any pending rollback marker on cancel.
+            if let Some(ref msg) = state.status_message {
+                if msg.starts_with("rollback_pending:") {
+                    state.status_message = None;
+                }
+            }
             return vec![Action::Nop];
+        }
+
+        // Check for a pending rollback marker set by the git log dialog.
+        if let Some(ref msg) = state.status_message {
+            if let Some(hash) = msg.strip_prefix("rollback_pending:") {
+                let hash = hash.to_string();
+                state.status_message = None;
+                return vec![Action::Rollback(hash)];
+            }
         }
 
         return match action {
             ConfirmAction::Confirm => vec![Action::Quit],
-            ConfirmAction::Discard => {
-                // Discard was used for "quit with unsaved changes".
-                // In a future refactor we may distinguish actions per dialog.
-                vec![Action::Quit]
-            }
+            ConfirmAction::Discard => vec![Action::Quit],
         };
     }
 
@@ -401,23 +437,305 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
         KeyCode::Char('a') => vec![Action::SetStatus(
             "Add-app dialog not yet implemented — use `roost add <path>`".to_string(),
         )],
-        KeyCode::Char('i') => vec![Action::SetStatus(
-            "Ignore dialog not yet implemented — use `roost ignore`".to_string(),
-        )],
-        KeyCode::Char('P') => vec![Action::SetStatus(
-            "Profile dialog not yet implemented — use `roost profile`".to_string(),
-        )],
-        KeyCode::Char('g') => vec![Action::SetStatus(
-            "Git log dialog not yet implemented — use `roost log`".to_string(),
-        )],
+        KeyCode::Char('i') => {
+            state.ignore_dialog = Some(crate::tui::main_view::dialogs::IgnoreState::new());
+            vec![Action::Nop]
+        }
+        KeyCode::Char('P') => {
+            state.profile_dialog = Some(crate::tui::main_view::dialogs::ProfileState::new());
+            vec![Action::Nop]
+        }
+        KeyCode::Char('g') => {
+            let roost_dir = state.roost_dir.clone();
+            match crate::git::log(&roost_dir, 50) {
+                Ok(commits) => {
+                    state.git_log_dialog = Some(crate::tui::main_view::dialogs::GitLogState::new(commits));
+                }
+                Err(e) => {
+                    return vec![Action::SetStatus(format!("Git log error: {}", e))];
+                }
+            }
+            vec![Action::Nop]
+        }
         KeyCode::Char('d') => vec![Action::OpenPager("git_diff".to_string())],
-        KeyCode::Char('u') => vec![Action::SetStatus(
-            "Undo dialog not yet implemented — use `roost undo`".to_string(),
-        )],
-        KeyCode::Char('?') => vec![Action::SetStatus(
-            "Help dialog not yet implemented".to_string(),
-        )],
+        KeyCode::Char('u') => {
+            let roost_dir = state.roost_dir.clone();
+            match crate::git::log(&roost_dir, 1) {
+                Ok(commits) if !commits.is_empty() => {
+                    let msg = format!("Undo last commit?\n{}  {}", &commits[0].hash[..7], commits[0].message);
+                    state.undo_dialog = Some(crate::tui::main_view::dialogs::UndoState::new(msg));
+                }
+                _ => {
+                    return vec![Action::SetStatus("No commits to undo".to_string())];
+                }
+            }
+            vec![Action::Nop]
+        }
+        KeyCode::Char('?') => {
+            state.help_dialog = Some(crate::tui::main_view::dialogs::HelpState::new());
+            vec![Action::Nop]
+        }
 
+        _ => vec![Action::Nop],
+    }
+}
+
+// ------------------------------------------------------------------
+// Help dialog
+// ------------------------------------------------------------------
+
+fn handle_help(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
+    use crate::tui::main_view::dialogs::KEYBINDS;
+
+    let Some(ref mut help) = state.help_dialog else {
+        return vec![Action::Nop];
+    };
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            state.help_dialog = None;
+            vec![Action::Nop]
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            help.move_up();
+            vec![Action::Nop]
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            help.move_down(KEYBINDS.len());
+            vec![Action::Nop]
+        }
+        _ => vec![Action::Nop],
+    }
+}
+
+// ------------------------------------------------------------------
+// Profile dialog
+// ------------------------------------------------------------------
+
+fn handle_profile(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
+    use crate::tui::main_view::dialogs::ProfileMode;
+
+    let Some(ref mut profile) = state.profile_dialog else {
+        return vec![Action::Nop];
+    };
+
+    let mode = profile.mode;
+
+    match key.code {
+        KeyCode::Esc => {
+            state.profile_dialog = None;
+            vec![Action::Nop]
+        }
+        KeyCode::Tab => {
+            profile.cycle_mode();
+            vec![Action::Nop]
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            profile.move_up();
+            vec![Action::Nop]
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let max = match mode {
+                ProfileMode::Switch | ProfileMode::Delete => state.shared.profiles.len(),
+                ProfileMode::Create => 0,
+            };
+            profile.move_down(max);
+            vec![Action::Nop]
+        }
+        KeyCode::Enter => {
+            match mode {
+                ProfileMode::Switch => {
+                    let names: Vec<&String> = {
+                        let mut v: Vec<&String> = state.shared.profiles.keys().collect();
+                        v.sort();
+                        v
+                    };
+                    if let Some(name) = names.get(profile.cursor) {
+                        let name = name.to_string();
+                        state.profile_dialog = None;
+                        return vec![Action::SwitchProfile(name)];
+                    }
+                }
+                ProfileMode::Create => {
+                    let (name, copy_current) = {
+                        let name = profile.input.trim().to_string();
+                        let copy = profile.copy_current;
+                        (name, copy)
+                    };
+                    if !name.is_empty() {
+                        state.profile_dialog = None;
+                        return vec![Action::CreateProfile {
+                            name,
+                            copy_current,
+                        }];
+                    }
+                }
+                ProfileMode::Delete => {
+                    let names: Vec<&String> = {
+                        let mut v: Vec<&String> = state.shared.profiles.keys().collect();
+                        v.sort();
+                        v
+                    };
+                    if let Some(name) = names.get(profile.cursor) {
+                        let name = name.to_string();
+                        if name == state.local.active_profile {
+                            return vec![Action::SetStatus(
+                                "Cannot delete the active profile".to_string(),
+                            )];
+                        }
+                        state.profile_dialog = None;
+                        return vec![Action::DeleteProfile(name)];
+                    }
+                }
+            }
+            vec![Action::Nop]
+        }
+        KeyCode::Char(c) if mode == ProfileMode::Create => {
+            profile.input.push(c);
+            vec![Action::Nop]
+        }
+        KeyCode::Backspace if mode == ProfileMode::Create => {
+            profile.input.pop();
+            vec![Action::Nop]
+        }
+        KeyCode::Char(' ') if mode == ProfileMode::Create => {
+            profile.copy_current = !profile.copy_current;
+            vec![Action::Nop]
+        }
+        _ => vec![Action::Nop],
+    }
+}
+
+// ------------------------------------------------------------------
+// Ignore dialog
+// ------------------------------------------------------------------
+
+fn handle_ignore(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
+    use crate::tui::main_view::dialogs::IgnoreMode;
+
+    let Some(ref mut ignore) = state.ignore_dialog else {
+        return vec![Action::Nop];
+    };
+
+    let mode = ignore.mode;
+
+    match key.code {
+        KeyCode::Esc => {
+            state.ignore_dialog = None;
+            vec![Action::Nop]
+        }
+        KeyCode::Tab => {
+            ignore.cycle_mode();
+            vec![Action::Nop]
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            ignore.move_up();
+            vec![Action::Nop]
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let max = match mode {
+                IgnoreMode::Remove => state.shared.ignored.len(),
+                IgnoreMode::Add => 0,
+            };
+            ignore.move_down(max);
+            vec![Action::Nop]
+        }
+        KeyCode::Enter => {
+            match mode {
+                IgnoreMode::Add => {
+                    let pattern = ignore.input.trim().to_string();
+                    if !pattern.is_empty() {
+                        state.ignore_dialog = None;
+                        return vec![Action::AddIgnore(pattern)];
+                    }
+                }
+                IgnoreMode::Remove => {
+                    let patterns: Vec<&String> = {
+                        let mut v: Vec<&String> = state.shared.ignored.iter().collect();
+                        v.sort();
+                        v
+                    };
+                    if let Some(pat) = patterns.get(ignore.cursor) {
+                        let pat = pat.to_string();
+                        state.ignore_dialog = None;
+                        return vec![Action::RemoveIgnore(pat)];
+                    }
+                }
+            }
+            vec![Action::Nop]
+        }
+        KeyCode::Char(c) if mode == IgnoreMode::Add => {
+            ignore.input.push(c);
+            vec![Action::Nop]
+        }
+        KeyCode::Backspace if mode == IgnoreMode::Add => {
+            ignore.input.pop();
+            vec![Action::Nop]
+        }
+        _ => vec![Action::Nop],
+    }
+}
+
+// ------------------------------------------------------------------
+// Git log dialog
+// ------------------------------------------------------------------
+
+fn handle_git_log(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
+    let Some(ref mut git_log) = state.git_log_dialog else {
+        return vec![Action::Nop];
+    };
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            state.git_log_dialog = None;
+            vec![Action::Nop]
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            git_log.move_up();
+            vec![Action::Nop]
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            git_log.move_down();
+            vec![Action::Nop]
+        }
+        KeyCode::Char('r') => {
+            if let Some(hash) = git_log.selected_hash().map(|s| s.to_string()) {
+                state.git_log_dialog = None;
+                state.confirm_dialog = Some(ConfirmDialog::destructive(
+                    "Rollback",
+                    &format!("Rollback to {}?", &hash[..7]),
+                ));
+                vec![Action::SetStatus(format!("rollback_pending:{}", hash))]
+            } else {
+                vec![Action::Nop]
+            }
+        }
+        _ => vec![Action::Nop],
+    }
+}
+
+// ------------------------------------------------------------------
+// Undo dialog
+// ------------------------------------------------------------------
+
+fn handle_undo(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
+    let Some(ref _undo) = state.undo_dialog else {
+        return vec![Action::Nop];
+    };
+
+    match key.code {
+        KeyCode::Esc => {
+            state.undo_dialog = None;
+            vec![Action::Nop]
+        }
+        KeyCode::Char('y') | KeyCode::Char('Y') => {
+            state.undo_dialog = None;
+            vec![Action::Undo]
+        }
+        KeyCode::Char('n') | KeyCode::Char('N') => {
+            state.undo_dialog = None;
+            vec![Action::Nop]
+        }
         _ => vec![Action::Nop],
     }
 }
