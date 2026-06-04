@@ -119,3 +119,107 @@ fn where_errors_without_init() {
         .failure()
         .stderr(predicate::str::contains("not initialized"));
 }
+
+#[test]
+fn where_with_profile_flag() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path();
+    setup_roost(dir);
+    std::fs::write(
+        dir.join("roost.toml"),
+        r#"
+ignored = []
+
+[profiles]
+[profiles.default]
+apps = ["myapp"]
+app_sources = {}
+
+[profiles.work]
+apps = ["workapp"]
+app_sources = {}
+
+[apps.myapp]
+is_dir = true
+on_profiles = ["default"]
+
+[apps.workapp]
+is_dir = false
+on_profiles = ["work"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("local.toml"),
+        r#"
+active_profile = "default"
+
+[os_info]
+os = "test"
+arch = "x86_64"
+
+[link_paths]
+myapp = "/fake/path/myapp"
+workapp = "/fake/path/workapp"
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("roost")
+        .unwrap()
+        .env("ROOST_DIR", dir)
+        .args(["where", "workapp", "--profile", "work"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("workapp"));
+}
+
+#[test]
+fn where_with_profile_flag_errors_for_app_not_in_profile() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path();
+    setup_roost(dir);
+    std::fs::write(
+        dir.join("roost.toml"),
+        r#"
+ignored = []
+
+[profiles]
+[profiles.default]
+apps = ["myapp"]
+app_sources = {}
+
+[profiles.work]
+apps = []
+app_sources = {}
+
+[apps.myapp]
+is_dir = true
+on_profiles = ["default"]
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("roost")
+        .unwrap()
+        .env("ROOST_DIR", dir)
+        .args(["where", "myapp", "--profile", "work"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not found"));
+}
+
+#[test]
+fn where_with_profile_flag_errors_for_unknown_profile() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path();
+    setup_roost(dir);
+
+    Command::cargo_bin("roost")
+        .unwrap()
+        .env("ROOST_DIR", dir)
+        .args(["where", "foo", "--profile", "nonexistent"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not found"));
+}
