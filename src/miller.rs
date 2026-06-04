@@ -68,6 +68,16 @@ impl MillerColumns {
         }
     }
 
+    /// Re-initialize the browser at a new root, preserving selected paths.
+    pub fn set_root(&mut self, root: &Path) {
+        self.root = root.to_path_buf();
+        let column = MillerColumn::load(self.root.clone())
+            .unwrap_or_else(|_| MillerColumn::empty(self.root.clone()));
+        self.columns = vec![column];
+        self.filtered_indices = None;
+        self.filtered_cursor = 0;
+    }
+
     pub fn set_filter(&mut self, indices: Vec<usize>) {
         self.filtered_indices = Some(indices);
         self.filtered_cursor = 0;
