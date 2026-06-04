@@ -39,6 +39,16 @@ arch = "x86_64"
         .output()
         .unwrap();
     std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
         .args(["add", "-A"])
         .current_dir(dir)
         .output()

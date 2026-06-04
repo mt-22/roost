@@ -6,6 +6,15 @@ use tempfile::TempDir;
 fn setup_git_repo() -> TempDir {
     let tmp = TempDir::new().unwrap();
     init(tmp.path()).unwrap();
+    // git requires user identity for commits
+    let _ = std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(tmp.path())
+        .output();
+    let _ = std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(tmp.path())
+        .output();
     tmp
 }
 
