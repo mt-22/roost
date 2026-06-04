@@ -217,6 +217,30 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 if let Some(current) = state.shared.profiles.get(&state.local.active_profile) {
                     profile.apps = current.apps.clone();
                     profile.app_sources = current.app_sources.clone();
+
+                    // Physically copy app files into the new profile directory.
+                    let source_profile_dir = crate::app::profile_dir(&state.roost_dir, &state.local.active_profile);
+                    let target_profile_dir = crate::app::profile_dir(&state.roost_dir, &name);
+                    let _ = std::fs::create_dir_all(&target_profile_dir);
+
+                    for app_name in &current.apps {
+                        let is_dir = state
+                            .shared
+                            .apps
+                            .get(app_name)
+                            .map(|a| a.is_dir)
+                            .unwrap_or(true);
+                        let source = crate::linker::app_dest(&source_profile_dir, app_name, is_dir);
+                        let target = crate::linker::app_dest(&target_profile_dir, app_name, is_dir);
+                        if source.exists() && !target.exists() {
+                            if is_dir {
+                                let _ = crate::linker::copy_dir_recursive(&source, &target);
+                            } else {
+                                let _ = std::fs::create_dir_all(target.parent().unwrap_or(&target_profile_dir));
+                                let _ = std::fs::copy(&source, &target);
+                            }
+                        }
+                    }
                 }
             }
             state.shared.profiles.insert(name.clone(), profile);

@@ -314,7 +314,7 @@ pub fn copy_to(
 }
 
 // recursive directory copy
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+pub fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
