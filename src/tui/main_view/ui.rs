@@ -146,24 +146,28 @@ fn render_apps_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
 }
 
 fn render_files_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
-    let border_color = if state.focus == Focus::FilesPanel {
+    let header_color = if state.focus == Focus::FilesPanel {
         Color::Cyan
     } else {
         Color::DarkGray
     };
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color))
-        .title(" Files ");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let vertical = Layout::vertical([
+        Constraint::Length(1), // " Files " header
+        Constraint::Min(1),   // miller columns
+    ])
+    .split(area);
 
-    if inner.width == 0 || inner.height == 0 {
+    let header_line = Line::from(vec![
+        Span::styled(" Files ", Style::default().fg(header_color).add_modifier(Modifier::BOLD)),
+    ]);
+    frame.render_widget(Paragraph::new(header_line), vertical[0]);
+
+    if vertical[1].width == 0 || vertical[1].height == 0 {
         return;
     }
 
-    frame.render_widget(&state.miller, inner);
+    frame.render_widget(&state.miller, vertical[1]);
 }
 
 // ------------------------------------------------------------------

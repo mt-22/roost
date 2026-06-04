@@ -237,6 +237,9 @@ fn apply_search_selection(state: &mut MainViewState) -> Vec<Action> {
 // ------------------------------------------------------------------
 
 fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
+    // Any keypress at the base layer clears stale status messages.
+    state.status_message = None;
+
     match key.code {
         // Navigation
         KeyCode::Char('j') => {
@@ -257,13 +260,37 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             state.focus = state.focus.toggle();
             vec![Action::Nop]
         }
+        // h/l as "enter/exit" the focused area
         KeyCode::Char('h') => {
-            state.miller.navigate_up();
-            vec![Action::Nop]
+            match state.focus {
+                Focus::AppsPanel => vec![Action::Nop], // no-op from app list
+                Focus::FilesPanel => {
+                    if state.miller.is_at_root() {
+                        state.focus = Focus::AppsPanel;
+                    } else {
+                        state.miller.navigate_up();
+                    }
+                    vec![Action::Nop]
+                }
+            }
         }
         KeyCode::Char('l') => {
-            state.miller.navigate_down();
-            vec![Action::Nop]
+            match state.focus {
+                Focus::AppsPanel => {
+                    state.focus = Focus::FilesPanel;
+                    vec![Action::Nop]
+                }
+                Focus::FilesPanel => {
+                    if state.miller.current_cursor_is_dir() {
+                        state.miller.navigate_down();
+                        vec![Action::Nop]
+                    } else if let Some(path) = state.miller.current_cursor_path() {
+                        vec![Action::OpenEditor(path)]
+                    } else {
+                        vec![Action::Nop]
+                    }
+                }
+            }
         }
 
         // Search

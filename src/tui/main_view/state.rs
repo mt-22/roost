@@ -48,6 +48,7 @@ pub struct MainViewState {
     // Meta
     pub status_message: Option<String>,
     pub pending_auto_commit: Option<String>,
+    pub needs_redraw: bool,
     pub quit: bool,
 }
 
@@ -102,6 +103,7 @@ impl MainViewState {
             diff_view: None,
             status_message: None,
             pending_auto_commit: None,
+            needs_redraw: false,
             quit: false,
         };
 

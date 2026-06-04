@@ -56,7 +56,39 @@ fn run_git(roost_dir: &Path, args: &[&str]) -> Result<String> {
 
 pub fn init(roost_dir: &Path) -> Result<()> {
     run_git(roost_dir, &["init", "-b", "main"])?;
+
+    // Ensure git identity is set so the first commit never fails.
+    // Prefer local repo config; only set if missing globally/locally.
+    if git_config_value(roost_dir, "user.name")?.is_none() {
+        run_git(roost_dir, &["config", "user.name", "Roost"])?;
+    }
+    if git_config_value(roost_dir, "user.email")?.is_none() {
+        run_git(roost_dir, &["config", "user.email", "roost@localhost"])?;
+    }
+
     Ok(())
+}
+
+/// Read a git config value, returning `None` if unset (exit code 1) or empty.
+fn git_config_value(roost_dir: &Path, key: &str) -> Result<Option<String>> {
+    let git_dir = roost_dir.join(".git");
+    let output = Command::new("git")
+        .current_dir(roost_dir)
+        .arg(format!("--git-dir={}", git_dir.display()))
+        .arg(format!("--work-tree={}", roost_dir.display()))
+        .args(["config", key])
+        .output()?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let val = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if val.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(val))
+    }
 }
 
 pub fn save(roost_dir: &Path, message: &str) -> Result<bool> {

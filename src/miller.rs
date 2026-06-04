@@ -214,6 +214,23 @@ impl MillerColumns {
         &current.entries
     }
 
+    /// True when the browser is at the root directory (only one column).
+    pub fn is_at_root(&self) -> bool {
+        self.columns.len() == 1
+    }
+
+    /// True if the currently selected entry is a directory.
+    pub fn current_cursor_is_dir(&self) -> bool {
+        let cursor = self.real_cursor();
+        let current = &self.columns[self.columns.len() - 1];
+        current
+            .entries
+            .get(cursor)
+            .and_then(|e| e.file_type().ok())
+            .map(|t| t.is_dir())
+            .unwrap_or(false)
+    }
+
     pub fn current_cursor(&self) -> usize {
         let current = &self.columns[self.columns.len() - 1];
         current.cursor

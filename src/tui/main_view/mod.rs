@@ -81,6 +81,10 @@ fn run_loop(
     let mut state = MainViewState::new(roost_dir, shared, local);
 
     loop {
+        if state.needs_redraw {
+            terminal.clear()?;
+            state.needs_redraw = false;
+        }
         terminal.draw(|f| {
             render(&mut state, f);
         })?;
@@ -131,6 +135,7 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 std::process::Command::new(&editor).arg(&path).status()?;
                 Ok(())
             });
+            state.needs_redraw = true;
             if let Err(e) = result {
                 state.status_message = Some(format!("Editor error: {}", e));
             }
@@ -144,6 +149,7 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                         pager::open(&diff)?;
                         Ok(())
                     });
+                    state.needs_redraw = true;
                     if let Err(e) = result {
                         state.status_message = Some(format!("Diff error: {}", e));
                     }
@@ -160,6 +166,7 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 let _ = git::sync(&roost_dir, crate::git::ConflictPreference::Local);
                 Ok(())
             });
+            state.needs_redraw = true;
             if let Err(e) = result {
                 state.status_message = Some(format!("Sync error: {}", e));
             } else {
