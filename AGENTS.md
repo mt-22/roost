@@ -51,7 +51,7 @@ src/
   pager.rs             -- External pager wrapper ($PAGER / less -R)
   gitignore.rs         -- .gitignore regeneration with managed blocks
 
-tests/                  -- Integration tests (~35 tests across 8 files)
+tests/                  -- Integration tests (~62 tests across 14 files)
 ```
 
 ### Data Models
@@ -103,7 +103,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 **Dev dependencies:** `assert_cmd`, `predicates`, `tempfile`
 **Runtime external:** `git` CLI, `$EDITOR` (default `vi`), `$PAGER` (default `less`)
 
-**Test targets:** ~93 tests total (~58 unit + ~35 integration). The SPEC targets 83 integration + 10 unit; we are currently integration-light and unit-heavy.
+**Test targets:** ~99+ tests total (~64 unit + ~62 integration). Most CLI commands now have integration test coverage.
 
 ---
 
@@ -152,7 +152,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | **Config migration** | **P2** | `migrate_shared()` is a no-op stub. Needs dual-format `apps` and `link_path` -> `link_paths` handling |
 | **git push in sync** | **P2** | `sync()` fetches and rebases but never pushes. SPEC requires push |
 | **Suspend/resume** | **P1** | No infrastructure for TUI to drop to terminal for $EDITOR/$PAGER/git |
-| **Integration tests** | **P2** | Missing: sync, diff, ignore, restore, rollback, adopt, list, save, init, where --profile |
+| **Integration tests** | **P2** | Missing: sync, init. Done: diff, ignore, restore, rollback, adopt, list, save, where --profile |
 | **File preview** | **P2** | Miller columns show filenames only; SPEC wants inline content preview for files |
 
 ### Known Issues / Fragile Areas
@@ -166,6 +166,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | Cross-profile symlink cycles | **Fixed** | `validate_shared()` detects cycles on config load |
 | `ensure_links` / `switch_links` error swallowing | **Fixed** | Both propagate errors properly |
 | Temp backup clobbering | **Fixed** | Backups go to `.backups/` inside roost dir |
+| Git identity missing in test helpers | **Fixed** | All `setup_roost` helpers and `git::tests.rs` now set `user.name`/`user.email` |
 
 ---
 
@@ -216,16 +217,16 @@ Fix remaining backend gaps that affect both CLI and TUI.
 Fill in missing integration tests.
 
 **Files to create / extend:**
-- `tests/sync.rs` — sync command (critical gap, also tests git push)
-- `tests/diff.rs` — diff command
-- `tests/ignore.rs` — ignore command
-- `tests/restore.rs` — restore command
-- `tests/rollback.rs` — rollback command
-- `tests/adopt.rs` — adopt command
-- `tests/list.rs` — list command
-- `tests/save.rs` — save command
-- `tests/init.rs` — init wizard + onboarding TUI (mock selection)
-- `tests/where.rs` — extend with `--profile` tests
+- ✅ `tests/diff.rs` — diff command
+- ✅ `tests/ignore.rs` — ignore command
+- ✅ `tests/restore.rs` — restore command
+- ✅ `tests/rollback.rs` — rollback command
+- ✅ `tests/adopt.rs` — adopt command
+- ✅ `tests/list.rs` — list command
+- ✅ `tests/save.rs` — save command
+- ✅ `tests/where.rs` — extend with `--profile` tests
+- ⬜ `tests/sync.rs` — sync command (critical gap, also tests git push)
+- ⬜ `tests/init.rs` — init wizard + onboarding TUI (mock selection)
 
 ---
 
@@ -270,7 +271,7 @@ The SPEC suggests this order for maximum testability. Current progress is throug
 
 Already in `Cargo.toml`:
 - `ratatui = "0.30"`, `crossterm = "0.29"`, `color-eyre = "0.6"`, `dialoguer = "0.12"`, `dirs = "6"`, `serde = "1"`, `toml = "0.8"`, `clap = "4"`, `time = "0.3"`
-- Added but uncommitted: `clap_complete = "4"`, `ctrlc = "3"`
+- Added: `clap_complete = "4"`, `ctrlc = "3"`
 
 No new dependencies expected for the remaining work.
 
