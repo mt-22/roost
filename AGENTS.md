@@ -164,12 +164,13 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | Area | Priority | Gap |
 |------|----------|-----|
 | **Main TUI + Dialogs** | **Done** | All 7 dialogs implemented. `roost` with no args launches full TUI. |
-| **Tilde-path serde** | **P1** | SPEC requires custom serde to serialize `~/...` in shared config. Currently uses plain PathBuf serde |
+| **File preview in Miller columns** | **P1** | Preview pane shows filenames only. SPEC wants inline content preview for files (first N lines). |
+| **Restore from Git Log** | **P1** | Git Log dialog (`g`) can rollback (`r`), but cannot restore individual files or apps from a past commit. Need per-commit restore action. |
+| **Tilde-path serde** | **P2** | SPEC requires custom serde to serialize `~/...` in shared config. Currently uses plain PathBuf serde |
 | **Config migration** | **P2** | `migrate_shared()` is a no-op stub. Needs dual-format `apps` and `link_path` -> `link_paths` handling |
 | **git push in sync** | **P2** | `sync()` fetches and rebases but never pushes. SPEC requires push |
 | **Concurrency protection** | **P2** | Config writes are not atomic (no temp file + rename) |
 | **Integration tests** | **P2** | Missing: sync, init. Done: diff, ignore, restore, rollback, adopt, list, save, where --profile |
-| **File preview** | **P2** | Miller columns show filenames only; SPEC wants inline content preview for files |
 
 ### Known Issues / Fragile Areas
 
@@ -273,11 +274,11 @@ The SPEC suggests this order for maximum testability. Current progress is throug
 10. ⬜ `tui/main_view/` + `dialogs/` — **Biggest remaining piece**
 11. 🔄 Integration tests alongside each layer
 
-**Recommended next sequence:**
-1. ✅ **Suspend/resume infrastructure** — `tui/suspend.rs` done
-2. ✅ **Main TUI core** (Stream 2) — Complete
-3. ✅ **Dialog system** (Stream 3) — All 7 dialogs done
-4. ⬜ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, file preview
+**Recommended next sequence (user-directed):**
+1. ✅ **Streams 1-3** — Suspend/resume, Main TUI, Dialogs — all done
+2. ⬜ **File preview in Miller columns** — Inline content for files (first N lines), skip binary
+3. ⬜ **Restore from Git Log** — Per-commit restore: checkout individual files or apps from a past commit in the Git Log dialog
+4. ⬜ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, config migration
 5. ⬜ **Test coverage** (Stream 5) — sync.rs, init.rs
 
 ---
