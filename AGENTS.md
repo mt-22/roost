@@ -142,8 +142,8 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 |------|--------|-------|
 | Backend modules | **Strong** | app/, linker/, scanner/, git/ are well-tested and functional |
 | CLI commands | **Complete** | All 15+ subcommands implemented and wired |
-| Suspend/resume | **Partial** | `tui/suspend.rs` implemented with tests. Needs wiring into main TUI |
-| Main TUI skeleton | **In progress** | `tui/main_view/state.rs` complete; `event.rs`/`ui.rs`/`mod.rs` stubbed |
+| Suspend/resume | **Done** | `tui/suspend.rs` implemented, wired into main TUI for $EDITOR/$PAGER/git |
+| Main TUI | **Done** | Full event loop, rendering, panel navigation, search, actions wired to main.rs |
 | Onboarding TUI | **Functional** | init_tui.rs works for roost init; has search, miller, confirm, signal handling |
 | Miller columns | **Solid** | Reusable widget with 10 unit tests |
 | Fuzzy search | **Solid** | Reusable FuzzyEngine with tests |
@@ -157,7 +157,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | Area | Priority | Gap |
 |------|----------|-----|
 | **Main TUI** | **P0** | `tui/main_view/` skeleton in place (`state.rs` complete; `event.rs`/`ui.rs`/`mod.rs` stubbed). Not yet wired to `main.rs` no-arg launch |
-| **Dialog system** | **P0** | Only `ConfirmDialog` exists. Missing: Help, Ignore, Profile, Git Log, Undo, App Link, Diff View |
+| **Dialog system** | **P0** | 5 of 7 done: Help, Profile, Ignore, Git Log, Undo. Missing: App Link, Diff View |
 | **Suspend/resume** | **P1** | `tui/suspend.rs` helper implemented. Not yet wired into main TUI event handlers |
 | **Tilde-path serde** | **P1** | SPEC requires custom serde to serialize `~/...` in shared config. Currently uses plain PathBuf serde |
 | **Config migration** | **P2** | `migrate_shared()` is a no-op stub. Needs dual-format `apps` and `link_path` -> `link_paths` handling |
