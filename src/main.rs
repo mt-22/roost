@@ -2,7 +2,7 @@ use clap::{CommandFactory, Parser};
 use color_eyre::{Result, eyre::bail};
 use dialoguer::{console::style, theme::ColorfulTheme};
 use roost::cli::{Cli, Commands, ProfileAction, ProfileCmd};
-use roost::{app, git, init, linker, pager};
+use roost::{app, git, init, linker, pager, tui};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -13,11 +13,8 @@ fn main() -> Result<()> {
 
     match cli.command {
         None => {
-            println!(
-                "{}",
-                style("Main TUI not yet implemented — use `roost <command>`").dim()
-            );
-            Ok(())
+            let (shared, local, roost_dir) = load_configs()?;
+            tui::main_view::run(roost_dir, shared, local)
         }
         Some(Commands::Init) => cmd_init(),
         Some(Commands::Add { path }) => cmd_add(&path),
