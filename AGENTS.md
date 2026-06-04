@@ -52,6 +52,13 @@ src/
       ui.rs            -- Rendering: header, panels, status bar, dialogs
       dialogs/
         mod.rs         -- Re-exports for dialog state types
+        help.rs        -- Searchable keybind reference
+        profile.rs     -- Switch/create/delete profiles (3-mode, Tab cycle)
+        ignore.rs      -- Add/remove ignore patterns (2-mode, Tab cycle)
+        git_log.rs     -- Git history browser + rollback trigger
+        undo.rs        -- Undo confirmation dialog
+        app_link.rs    -- Import/paste multi-step wizard
+        diff_view.rs   -- Inline scrollable diff viewer
 
   cli.rs               -- Clap CLI definitions
   logo.rs              -- ASCII art constant
@@ -156,12 +163,11 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 
 | Area | Priority | Gap |
 |------|----------|-----|
-| **Main TUI** | **P0** | `tui/main_view/` skeleton in place (`state.rs` complete; `event.rs`/`ui.rs`/`mod.rs` stubbed). Not yet wired to `main.rs` no-arg launch |
-| **Dialog system** | **P0** | 5 of 7 done: Help, Profile, Ignore, Git Log, Undo. Missing: App Link, Diff View |
-| **Suspend/resume** | **P1** | `tui/suspend.rs` helper implemented. Not yet wired into main TUI event handlers |
+| **Main TUI + Dialogs** | **Done** | All 7 dialogs implemented. `roost` with no args launches full TUI. |
 | **Tilde-path serde** | **P1** | SPEC requires custom serde to serialize `~/...` in shared config. Currently uses plain PathBuf serde |
 | **Config migration** | **P2** | `migrate_shared()` is a no-op stub. Needs dual-format `apps` and `link_path` -> `link_paths` handling |
 | **git push in sync** | **P2** | `sync()` fetches and rebases but never pushes. SPEC requires push |
+| **Concurrency protection** | **P2** | Config writes are not atomic (no temp file + rename) |
 | **Integration tests** | **P2** | Missing: sync, init. Done: diff, ignore, restore, rollback, adopt, list, save, where --profile |
 | **File preview** | **P2** | Miller columns show filenames only; SPEC wants inline content preview for files |
 
@@ -187,45 +193,42 @@ This is the ordered breakdown of remaining work to reach SPEC compliance:
 ### Stream 1: Suspend/Resume Infrastructure
 Generic helper to leave alternate screen, run external command, restore TUI.
 
-**Status:** `tui/suspend.rs` implemented with tests. Needs wiring into main TUI event handlers.
+**Status:** ✅ `tui/suspend.rs` implemented with tests. Wired into main TUI event handlers for `$EDITOR`, `$PAGER`, and `git`.
 
 ---
 
 ### Stream 2: Main TUI Core (`tui/main_view/`)
 Build the primary daily interface launched by `roost` with no args.
 
-**Files created (skeleton):**
-- `src/tui/main_view/mod.rs` — Entry point and run loop (stub)
-- `src/tui/main_view/state.rs` — State machine complete (MainViewState, Focus, SearchState, helper methods)
-- `src/tui/main_view/event.rs` — Key dispatch, dialog routing, Action enum (stub)
-- `src/tui/main_view/ui.rs` — Rendering (stub)
+**Status:** ✅ Complete.
 
-**Remaining work:**
-- Wire event.rs key handlers for base panel navigation and actions
-- Implement ui.rs rendering for header, panels, status bar, dialogs
-- Wire mod.rs run loop with terminal setup/restore, panic hook, Ctrl+C handler
-- Connect to `main.rs` no-arg launch
-- Action processing (pending_auto_commit batching, suspend/resume integration)
+**Files:**
+- `src/tui/main_view/mod.rs` — Entry point, run loop, action processing, suspend/resume integration
+- `src/tui/main_view/state.rs` — MainViewState with panels, dialog stack, pending_auto_commit
+- `src/tui/main_view/event.rs` — Key dispatch, dialog routing, Action enum
+- `src/tui/main_view/ui.rs` — Rendering: header, apps panel, miller files panel, status bar, all dialogs
 
 **Key behaviors:**
 - Header: `roost · profile: <name>  N apps managed`
 - Left panel: App list with `★` primary marker, `←source` for linked apps
-- Right panel: Miller columns for file browsing with inline file preview
-- Focus switching between panels with `Tab`
+- Right panel: Miller columns for file browsing (no outer box, just 'Files' header)
+- Focus switching between panels with `Tab`; `h/l` navigate in/out of miller
 - Action keys: `o` open, `x` remove, `f` import, `m` paste, `e/Enter` edit, `p` set primary, `s` sync, `a` add, `i` ignore, `P` profile, `g` git log, `d` diff, `u` undo
 
 ### Stream 3: Dialog System (`tui/main_view/dialogs/`)
-Implement the 7 missing dialog overlays on top of Main TUI core.
+Implement the 7 dialog overlays on top of Main TUI core.
 
-**Files to create:**
-- `src/tui/main_view/dialogs/mod.rs` — Re-exports (placeholder states exist)
-- `src/tui/main_view/dialogs/help.rs` — Searchable keybind reference
-- `src/tui/main_view/dialogs/ignore.rs` — Add/remove ignore patterns
-- `src/tui/main_view/dialogs/profile.rs` — Switch/create/delete profiles
-- `src/tui/main_view/dialogs/git_log.rs` — Git history browser + rollback
-- `src/tui/main_view/dialogs/undo.rs` — Undo confirmation
+**Status:** ✅ All 7 dialogs implemented and wired.
+
+**Files:**
+- `src/tui/main_view/dialogs/mod.rs` — Re-exports
+- `src/tui/main_view/dialogs/help.rs` — Searchable keybind reference, j/k nav
+- `src/tui/main_view/dialogs/ignore.rs` — Add/remove ignore patterns, Tab cycles modes
+- `src/tui/main_view/dialogs/profile.rs` — Switch/create/delete profiles, Tab cycles modes, visual mode hint
+- `src/tui/main_view/dialogs/git_log.rs` — Git history browser, `r` triggers rollback confirm
+- `src/tui/main_view/dialogs/undo.rs` — Undo confirmation dialog
 - `src/tui/main_view/dialogs/app_link.rs` — Import/paste multi-step wizard
-- `src/tui/main_view/dialogs/diff_view.rs` — Diff viewer state
+- `src/tui/main_view/dialogs/diff_view.rs` — Inline scrollable diff viewer with color coding
 
 ### Stream 4: Backend Hardening
 Fix remaining backend gaps that affect both CLI and TUI.
@@ -272,10 +275,10 @@ The SPEC suggests this order for maximum testability. Current progress is throug
 
 **Recommended next sequence:**
 1. ✅ **Suspend/resume infrastructure** — `tui/suspend.rs` done
-2. 🔄 **Main TUI core** (Stream 2) — `state.rs` done; need `event.rs`, `ui.rs`, `mod.rs` run loop, `main.rs` wiring
-3. ⬜ **Dialog system** (Stream 3) — Layered on top of main TUI core
-4. ⬜ **Backend hardening** (Stream 4) — Smaller focused fixes, can parallelize with 2/3
-5. ⬜ **Test coverage** (Stream 5) — Fill gaps after features stabilize
+2. ✅ **Main TUI core** (Stream 2) — Complete
+3. ✅ **Dialog system** (Stream 3) — All 7 dialogs done
+4. ⬜ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, file preview
+5. ⬜ **Test coverage** (Stream 5) — sync.rs, init.rs
 
 ---
 
