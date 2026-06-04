@@ -613,16 +613,16 @@ fn handle_profile(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             }
             vec![Action::Nop]
         }
+        KeyCode::Char(' ') if mode == ProfileMode::Create => {
+            profile.copy_current = !profile.copy_current;
+            vec![Action::Nop]
+        }
         KeyCode::Char(c) if mode == ProfileMode::Create => {
             profile.input.push(c);
             vec![Action::Nop]
         }
         KeyCode::Backspace if mode == ProfileMode::Create => {
             profile.input.pop();
-            vec![Action::Nop]
-        }
-        KeyCode::Char(' ') if mode == ProfileMode::Create => {
-            profile.copy_current = !profile.copy_current;
             vec![Action::Nop]
         }
         _ => vec![Action::Nop],
