@@ -67,8 +67,14 @@ pub fn regenerate(
         lines.join("\n") + "\n\n" + &user_rules + "\n"
     };
 
-    // atomic write: temp file then rename prevents mid-write corruption
-    let tmp = path.with_extension("tmp");
+    // atomic write: unique temp file then rename prevents mid-write corruption
+    // and avoids clobbering concurrent roost processes
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let pid = std::process::id();
+    let tmp = path.with_extension(format!("tmp.{pid}.{now}"));
     fs::write(&tmp, output)?;
     fs::rename(&tmp, path)?;
     Ok(())

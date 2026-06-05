@@ -136,10 +136,16 @@ pub fn save_local(path: &PathBuf, config: &LocalAppConfig) -> Result<()> {
     Ok(())
 }
 
-/// Atomically write a file by writing to a .tmp sibling then renaming.
-/// This prevents corruption if the process crashes mid-write.
+/// Atomically write a file by writing to a unique temp sibling then renaming.
+/// This prevents corruption if the process crashes mid-write, and the unique
+/// filename avoids clobbering when multiple roost processes run concurrently.
 fn atomic_write(path: &Path, contents: &str) -> Result<()> {
-    let tmp = path.with_extension("tmp");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let pid = std::process::id();
+    let tmp = path.with_extension(format!("tmp.{pid}.{now}"));
     std::fs::write(&tmp, contents)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
