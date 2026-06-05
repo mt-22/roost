@@ -280,3 +280,11 @@ fn tilde_serde_deserializes_relative_path_unchanged() {
         Some(PathBuf::from("init.lua"))
     );
 }
+
+#[test]
+fn test_sanitize_app_name_replaces_separators() {
+    assert_eq!(sanitize_app_name("foo/bar"), "foo_bar");
+    assert_eq!(sanitize_app_name("foo\\bar"), "foo_bar");
+    assert_eq!(sanitize_app_name("normal"), "normal");
+    assert_eq!(sanitize_app_name("a\0b"), "a_b");
+}

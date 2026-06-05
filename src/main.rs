@@ -338,22 +338,23 @@ fn cmd_add(path: &std::path::Path) -> Result<()> {
         .ok_or_else(|| color_eyre::eyre::eyre!("Cannot determine file name from path."))?
         .to_string_lossy()
         .to_string();
-    let app_name = if file_name.starts_with('.') && file_name.len() > 1 {
+    let app_name_raw = if file_name.starts_with('.') && file_name.len() > 1 {
         &file_name[1..]
     } else if file_name.is_empty() {
         &file_name
     } else {
         file_name.as_str()
     };
+    let app_name = app::sanitize_app_name(app_name_raw);
     if app_name.is_empty() {
         bail!("Cannot determine app name from path.");
     }
-    if shared.apps.contains_key(app_name) {
+    if shared.apps.contains_key(&app_name) {
         bail!("App '{}' already managed.", app_name);
     }
-    linker::ingest(path, &pdir, app_name, is_dir)?;
+    linker::ingest(path, &pdir, &app_name, is_dir)?;
     shared.apps.insert(
-        app_name.to_string(),
+        app_name.clone(),
         app::Application {
             primary_config: None,
             on_profiles: {

@@ -47,6 +47,12 @@ where
     }
 }
 
+/// Sanitize an app name derived from a file name so it cannot be used
+/// for path injection. Replaces path separators and null bytes.
+pub fn sanitize_app_name(name: &str) -> String {
+    name.replace(['/', '\\', '\0'], "_")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SharedAppConfig {
     pub remote: Option<String>,

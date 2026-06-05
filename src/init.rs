@@ -162,21 +162,22 @@ pub fn run_wizard() -> Result<()> {
         let mut failures = Vec::new();
 
         for item in &selected {
-            let app_name = if item.name.starts_with('.') && item.name.len() > 1 {
+            let app_name_raw = if item.name.starts_with('.') && item.name.len() > 1 {
                 &item.name[1..]
             } else {
                 &item.name
             };
-            let app_name = if app_name.is_empty() {
+            let app_name_raw = if app_name_raw.is_empty() {
                 &item.name
             } else {
-                app_name
+                app_name_raw
             };
+            let app_name = app::sanitize_app_name(app_name_raw);
 
             match linker::ingest(
                 &item.path,
                 &pdir,
-                app_name,
+                &app_name,
                 item.item_type == scanner::ItemType::Dir,
             ) {
                 Ok(()) => {
