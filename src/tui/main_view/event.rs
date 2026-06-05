@@ -17,6 +17,7 @@ pub enum Action {
     OpenEditor(PathBuf),
     OpenPager(String),
     Sync,
+    Save,
     SwitchProfile(String),
     CreateProfile { name: String, copy_current: bool },
     DeleteProfile(String),
@@ -450,7 +451,8 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
         }
 
         // Global actions
-        KeyCode::Char('s') => vec![Action::Sync],
+        KeyCode::Char('s') => vec![Action::Save],
+        KeyCode::Char('S') => vec![Action::Sync],
         KeyCode::Char('a') => {
             vec![Action::SuspendForAddApp]
         }
@@ -728,14 +730,60 @@ fn handle_git_log(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
         }
         KeyCode::Char('r') => {
             if let Some(hash) = git_log.selected_hash().map(|s| s.to_string()) {
+                let mut message = format!("Rollback to {}?\n", &hash[..7]);
+
+                match crate::git::read_shared_at(&state.roost_dir, &hash) {
+                    Ok(target_shared) => {
+                        let current_apps: std::collections::BTreeSet<&String> =
+                            state.shared.apps.keys().collect();
+                        let target_apps: std::collections::BTreeSet<&String> =
+                            target_shared.apps.keys().collect();
+
+                        let preserved: Vec<&&String> = current_apps
+                            .iter()
+                            .filter(|a| target_apps.contains(*a))
+                            .collect();
+                        let protected: Vec<&&String> = current_apps
+                            .iter()
+                            .filter(|a| !target_apps.contains(*a))
+                            .collect();
+
+                        if !preserved.is_empty() {
+                            message.push_str(&format!(
+                                "\n{} app(s) rolled back: {}",
+                                preserved.len(),
+                                preserved
+                                    .iter()
+                                    .map(|a| a.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ));
+                        }
+                        if !protected.is_empty() {
+                            message.push_str(&format!(
+                                "\n{} app(s) preserved (did not exist at this commit): {}",
+                                protected.len(),
+                                protected
+                                    .iter()
+                                    .map(|a| a.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ));
+                        }
+                        message.push_str(
+                            "\n\nPreserved apps' configs and files will not be touched.\nA new commit will be created.",
+                        );
+                    }
+                    Err(e) => {
+                        message.push_str(&format!(
+                            "\n\nWARNING: Could not read roost.toml at this commit ({}).\nAll current apps will be treated as preserved.",
+                            e
+                        ));
+                    }
+                }
+
                 state.git_log_dialog = None;
-                state.confirm_dialog = Some(ConfirmDialog::destructive(
-                    "Rollback",
-                    &format!(
-                        "Rollback to {}?\n\nWARNING: This is a destructive hard reset and cannot be easily undone.",
-                        &hash[..7]
-                    ),
-                ));
+                state.confirm_dialog = Some(ConfirmDialog::destructive("Rollback", message));
                 vec![Action::SetStatus(format!("rollback_pending:{}", hash))]
             } else {
                 vec![Action::Nop]
