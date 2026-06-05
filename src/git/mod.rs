@@ -93,11 +93,49 @@ fn git_config_value(roost_dir: &Path, key: &str) -> Result<Option<String>> {
 
 pub fn save(roost_dir: &Path, message: &str) -> Result<bool> {
     run_git(roost_dir, &["add", "-A"])?;
-    // commit, and parse output for non-critical errors
     match run_git(roost_dir, &["commit", "-m", message]) {
         Ok(_) => Ok(true),
         Err(e) if e.to_string().contains("nothing to commit") => Ok(false),
         Err(e) => Err(e),
+    }
+}
+
+pub fn diff_stat(roost_dir: &Path) -> Result<String> {
+    let output = run_git(roost_dir, &["diff", "--stat"])?;
+    if output.trim().is_empty() {
+        return Ok(String::new());
+    }
+    let summary = parse_git_stat(&output);
+    Ok(summary)
+}
+
+fn parse_git_stat(output: &str) -> String {
+    let lines: Vec<&str> = output.lines().filter(|l| !l.contains("files changed")).collect();
+    let parts: Vec<String> = lines
+        .iter()
+        .filter_map(|line| {
+            let file = line.split_whitespace().next()?;
+            let additions = line.split('+').nth(1).and_then(|s| {
+                s.split_whitespace().next()?.parse::<u32>().ok()
+            });
+            let deletions = if line.contains('-') {
+                let parts: Vec<&str> = line.split('-').collect();
+                parts.get(1).and_then(|s| s.split_whitespace().next()?.parse::<u32>().ok())
+            } else {
+                None
+            };
+            if let (Some(a), Some(d)) = (additions, deletions) {
+                Some(format!("{}+{}/-{}", file, a, d))
+            } else {
+                None
+            }
+        })
+        .take(5)
+        .collect();
+    if parts.is_empty() {
+        output.lines().last().map(|s| s.to_string()).unwrap_or_default()
+    } else {
+        parts.join(", ")
     }
 }
 
@@ -235,7 +273,7 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
     let mut backups: Vec<PathBuf> = Vec::new();
     if matches!(preference, ConflictPreference::Remote) {
         // attempt rebase to discover which files conflict
-        if run_git(roost_dir, &["rebase", "origin/main"]).is_err() {
+        if let Err(rebase_err) = run_git(roost_dir, &["rebase", "origin/main"]) {
             let conflict_files = get_conflict_files(roost_dir);
             for file in &conflict_files {
                 if let Ok(backup) = backup_conflict_file(roost_dir, file) {
@@ -247,18 +285,29 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
                 let _ = run_git(roost_dir, &["checkout", "--theirs", file]);
                 let _ = run_git(roost_dir, &["add", file]);
             }
-            let _ = run_git(roost_dir, &["rebase", "--continue"]);
+            if let Err(e) = run_git(roost_dir, &["rebase", "--continue"]) {
+                if is_rebasing(roost_dir) {
+                    let _ = run_git(roost_dir, &["rebase", "--abort"]);
+                }
+                return Err(color_eyre::eyre::eyre!(
+                    "rebase failed after resolving conflicts: {}. Manual resolution may be required.",
+                    e
+                ));
+            }
         }
     } else {
         // local preference: attempt rebase, capture conflicts, abort
         match run_git(roost_dir, &["rebase", "origin/main"]) {
             Ok(_) => {}
-            Err(_) => {
+            Err(rebase_err) => {
                 let conflict_files = get_conflict_files(roost_dir);
                 let _ = run_git(roost_dir, &["rebase", "--abort"]);
 
                 if conflict_files.is_empty() {
-                    return Ok(SyncResult::Clean);
+                    return Err(color_eyre::eyre::eyre!(
+                        "rebase failed and no conflict files detected: {}. Check git status.",
+                        rebase_err
+                    ));
                 }
 
                 return Ok(SyncResult::FileConflict {
@@ -297,6 +346,10 @@ fn get_conflict_files(roost_dir: &Path) -> Vec<String> {
         Ok(output) => output.lines().map(|s| s.to_string()).collect(),
         Err(_) => Vec::new(),
     }
+}
+
+fn is_rebasing(roost_dir: &Path) -> bool {
+    roost_dir.join(".git/rebase-apply").exists() || roost_dir.join(".git/rebase-merge").exists()
 }
 
 pub fn log(roost_dir: &Path, n: usize) -> Result<Vec<CommitInfo>> {
