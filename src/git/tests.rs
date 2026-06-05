@@ -1,5 +1,6 @@
 use super::*;
 use std::fs;
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 // helper: create a temp dir and initialize a git repo
@@ -193,4 +194,81 @@ fn set_and_get_remote() {
         url,
         Some("https://github.com/user/dotfiles.git".to_string())
     );
+}
+
+#[test]
+fn safe_rollback_preserves_protected_apps() {
+    let tmp = setup_git_repo();
+    let profile = "default";
+
+    // Commit 1: appA exists
+    let config1 = r#"
+[apps.appA]
+is_dir = true
+on_profiles = ["default"]
+
+[profiles.default]
+apps = ["appA"]
+"#;
+    fs::write(tmp.path().join("roost.toml"), config1).unwrap();
+    fs::create_dir_all(tmp.path().join("default").join("appA")).unwrap();
+    fs::write(tmp.path().join("default/appA/file1.txt"), "original").unwrap();
+    save(tmp.path(), "add appA").unwrap();
+    let target_hash = log(tmp.path(), 1).unwrap()[0].hash.clone();
+
+    // Commit 2: appB is added, appA is modified
+    let config2 = r#"
+[apps.appA]
+is_dir = true
+on_profiles = ["default"]
+
+[apps.appB]
+is_dir = true
+on_profiles = ["default"]
+
+[profiles.default]
+apps = ["appA", "appB"]
+"#;
+    fs::write(tmp.path().join("roost.toml"), config2).unwrap();
+    fs::create_dir_all(tmp.path().join("default").join("appB")).unwrap();
+    fs::write(tmp.path().join("default/appB/file2.txt"), "new app").unwrap();
+    fs::write(tmp.path().join("default/appA/file1.txt"), "modified").unwrap();
+    save(tmp.path(), "add appB").unwrap();
+
+    // Set up configs as safe_rollback expects them
+    let pre_shared = crate::app::load_shared(&crate::app::shared_config_path(tmp.path())).unwrap();
+    let pre_local = crate::app::LocalAppConfig {
+        active_profile: profile.to_string(),
+        os_info: crate::os_detect::OsInfo { os: "test".to_string(), arch: "test".to_string() },
+        link_paths: [
+            ("appA".to_string(), PathBuf::from("/home/user/.config/appA")),
+            ("appB".to_string(), PathBuf::from("/home/user/.config/appB")),
+        ].into(),
+    };
+
+    let result = super::safe_rollback(
+        tmp.path(),
+        &target_hash,
+        &pre_shared,
+        &pre_local,
+        profile,
+    );
+    assert!(result.is_ok(), "safe_rollback failed: {:?}", result.err());
+
+    // Reload the config saved by safe_rollback
+    let new_shared = crate::app::load_shared(&crate::app::shared_config_path(tmp.path())).unwrap();
+
+    // appB should still be in the config (preserved)
+    assert!(new_shared.apps.contains_key("appB"), "appB should be preserved in config");
+    assert!(new_shared.profiles.get("default").unwrap().apps.contains("appB"));
+
+    // appB's managed files should still exist
+    assert!(tmp.path().join("default/appB/file2.txt").exists(), "appB files should exist on disk");
+
+    // appA's managed files should be rolled back to original
+    let app_a_content = fs::read_to_string(tmp.path().join("default/appA/file1.txt")).unwrap();
+    assert_eq!(app_a_content.trim(), "original", "appA should be rolled back to original state");
+
+    // appA should still be in the config
+    assert!(new_shared.apps.contains_key("appA"));
 }

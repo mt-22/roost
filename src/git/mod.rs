@@ -1,5 +1,6 @@
 use crate::app::{SharedAppConfig, load_shared, save_shared, shared_config_path};
 use color_eyre::{Result, eyre::bail};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -487,6 +488,105 @@ pub fn read_shared_at(roost_dir: &Path, hash: &str) -> Result<SharedAppConfig> {
     let config: SharedAppConfig = toml::from_str(&output)?;
     crate::app::validate_shared(&config)?;
     Ok(config)
+}
+
+/// Roll back to a target commit while preserving apps that don't exist at that commit.
+///
+/// Uses `git checkout` (not `git reset --hard`) to selectively restore preserved
+/// app directories. Protected apps' files are never touched. The result is committed
+/// as a new forward commit.
+pub fn safe_rollback(
+    roost_dir: &Path,
+    hash: &str,
+    pre_shared: &SharedAppConfig,
+    pre_local: &crate::app::LocalAppConfig,
+    profile_name: &str,
+) -> Result<()> {
+    // Phase 1: Read target config and classify apps
+    let target_shared = match read_shared_at(roost_dir, hash) {
+        Ok(c) => c,
+        Err(_) => {
+            run_git(roost_dir, &["checkout", hash, "--", "."])?;
+            return Err(color_eyre::eyre::eyre!(
+                "target commit has no roost.toml, aborting rollback"
+            ));
+        }
+    };
+
+    let current_apps: BTreeSet<String> = pre_shared.apps.keys().cloned().collect();
+    let target_apps: BTreeSet<String> = target_shared.apps.keys().cloned().collect();
+
+    let preserved_apps: BTreeSet<&String> = current_apps.intersection(&target_apps).collect();
+    let protected_apps: BTreeSet<&String> = current_apps.difference(&target_apps).collect();
+
+    // Phase 2: Selective checkout — only checkout preserved app directories + config
+    for app_name in &preserved_apps {
+        let app = &pre_shared.apps[*app_name];
+        let rel_path = if app.is_dir {
+            format!("{}/{}", profile_name, app_name)
+        } else {
+            format!("{}/misc/{}", profile_name, app_name)
+        };
+        let _ = run_git(roost_dir, &["checkout", hash, "--", &rel_path]);
+    }
+
+    run_git(roost_dir, &["checkout", hash, "--", "roost.toml"])?;
+    let _ = run_git(roost_dir, &["checkout", hash, "--", ".gitignore"]);
+
+    // Phase 3: Reload and repair config
+    let shared_path = crate::app::shared_config_path(roost_dir);
+    let local_path = crate::app::local_config_path(roost_dir);
+    let mut shared = crate::app::load_shared(&shared_path)?;
+    let mut local = pre_local.clone();
+
+    for app_name in &protected_apps {
+        if let Some(app_config) = pre_shared.apps.get(*app_name) {
+            shared.apps.insert((*app_name).clone(), app_config.clone());
+        }
+
+        for (pname, profile) in &pre_shared.profiles {
+            if profile.apps.contains(*app_name) {
+                if let Some(target_profile) = shared.profiles.get_mut(pname) {
+                    target_profile.apps.insert((*app_name).clone());
+                    if let Some(source) = profile.app_sources.get(*app_name) {
+                        target_profile
+                            .app_sources
+                            .insert((*app_name).clone(), source.clone());
+                    }
+                }
+            }
+        }
+
+        if let Some(path) = pre_local.link_paths.get(*app_name) {
+            local.link_paths.insert((*app_name).clone(), path.clone());
+        }
+    }
+
+    crate::app::save_shared(&shared_path, &shared)?;
+    let _ = crate::linker::ensure_links(&shared, &mut local, roost_dir);
+    crate::app::save_local(&local_path, &local)?;
+
+    // Phase 4: Commit
+    let n_protected = protected_apps.len();
+    run_git(roost_dir, &["add", "-A"])?;
+    match run_git(
+        roost_dir,
+        &[
+            "commit",
+            "-m",
+            &format!(
+                "rollback to {} + preserve {} app(s)",
+                &hash[..hash.len().min(7)],
+                n_protected
+            ),
+        ],
+    ) {
+        Ok(_) => {}
+        Err(e) if e.to_string().contains("nothing to commit") => {}
+        Err(e) => return Err(e),
+    }
+
+    Ok(())
 }
 
 pub fn undo(roost_dir: &Path, n: usize) -> Result<()> {
