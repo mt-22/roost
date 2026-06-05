@@ -37,7 +37,7 @@ src/
     tests.rs           -- Unit tests (9 tests)
 
   init.rs              -- roost init wizard (dialoguer-based prompts + onboarding TUI)
-  init_tui.rs          -- Onboarding TUI (monolithic, 819 lines)
+  app_selector.rs      -- App selection TUI (onboarding + add-app, monolithic, 819 lines)
   miller.rs            -- Miller column browser widget (585 lines, 10 tests)
 
   tui/
@@ -151,7 +151,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | CLI commands | **Complete** | All 15+ subcommands implemented and wired |
 | Suspend/resume | **Done** | `tui/suspend.rs` implemented, wired into main TUI for $EDITOR/$PAGER/git |
 | Main TUI | **Done** | Full event loop, rendering, panel navigation, search, actions wired to main.rs |
-| Onboarding TUI | **Functional** | init_tui.rs works for roost init; has search, miller, confirm, signal handling |
+| Onboarding TUI | **Functional** | app_selector.rs works for roost init and add-app; has search, miller, confirm, signal handling |
 | Miller columns | **Solid** | Reusable widget with 10 unit tests |
 | Fuzzy search | **Solid** | Reusable FuzzyEngine with tests |
 | Confirm dialog | **Solid** | Reusable yes/no dialog |
@@ -167,7 +167,8 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | **Git Log UX improvements** | **Done** | `r` rollback documented in help, footer hint in dialog, stronger confirm warning. |
 | **Terminal size enforcement** | **Done** | Minimum 40x12 with graceful too-small message. Narrow-width panic fixed via saturating_sub. |
 | **Responsive miller columns** | **Done** | Drops parent column below 100 width, shows current dir name in header. |
-| **Add App dialog** | **Done** | Miller-based file browser with `h/l` navigation, `/` fuzzy search, `Tab` focus switch, `Enter` confirm. |
+| **Add App dialog** | **Done** | Reuses `app_selector.rs` for full adoption TUI; `auto_select=false` from main TUI. |
+| **Primary config highlight** | **Done** | `★` marker in Miller columns on primary config file; cursor auto-focuses on it. |
 | **Restore from Git Log** | **P1** | Git Log dialog (`g`) can rollback (`r`), but cannot restore individual files or apps from a past commit. Need per-commit restore action. |
 | **Tilde-path serde** | **P2** | SPEC requires custom serde to serialize `~/...` in shared config. Currently uses plain PathBuf serde |
 | **Config migration** | **P2** | `migrate_shared()` is a no-op stub. Needs dual-format `apps` and `link_path` -> `link_paths` handling |
@@ -274,7 +275,7 @@ The SPEC suggests this order for maximum testability. Current progress is throug
 6. ✅ `init.rs` + `logo.rs`
 7. ✅ `main.rs` — CLI dispatch + all subcommand handlers
 8. ✅ `tui/search/` — Fuzzy search (exists, functional)
-9. ✅ `init_tui.rs` — Onboarding TUI (functional, monolithic is acceptable)
+9. ✅ `app_selector.rs` — App selection TUI (functional, monolithic is acceptable)
 10. ⬜ `tui/main_view/` + `dialogs/` — **Biggest remaining piece**
 11. 🔄 Integration tests alongside each layer
 
@@ -283,8 +284,9 @@ The SPEC suggests this order for maximum testability. Current progress is throug
 2. ✅ **File preview in Miller columns** — Inline content for files (first N lines), skip binary
 3. ✅ **Git Log UX** — Rollback warning, footer hint, keybind documentation
 4. ✅ **Responsive miller + Terminal size enforcement** — Narrow terminal fixes, min size enforcement
-5. ✅ **Add App dialog** — Miller-based file browser for adding apps from the TUI
-6. ⬜ **Restore from Git Log** — Per-commit restore: checkout individual files or apps from a past commit
+5. ✅ **Add App dialog** — Reuses `app_selector.rs` for full adoption TUI with multi-select
+6. ✅ **Primary config highlight** — `★` marker in Miller columns on primary config file; cursor auto-focuses on it
+7. ⬜ **Restore from Git Log** — Per-commit restore: checkout individual files or apps from a past commit
 7. ⬜ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, config migration
 8. ⬜ **Test coverage** (Stream 5) — sync.rs, init.rs
 

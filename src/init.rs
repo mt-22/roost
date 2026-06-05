@@ -1,9 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use color_eyre::Result;
 use dialoguer::{Confirm, Input, MultiSelect, console::style, theme::ColorfulTheme};
 
-use crate::{app, data, git, init_tui, linker, logo, os_detect, scanner};
+use crate::{app, app_selector, data, git, linker, logo, os_detect, scanner};
 
 fn roost_theme() -> ColorfulTheme {
     ColorfulTheme::default()
@@ -124,9 +126,15 @@ pub fn run_wizard() -> Result<()> {
     let sources = scanner::default_scan_sources(&home);
     let all_items = scanner::scan_sources(&sources, &ignored_set);
 
-    let selected = match init_tui::run_selection_tui(all_items, &home)? {
-        init_tui::TuiResult::Selected(items) => items,
-        init_tui::TuiResult::Aborted => {
+    let should_exit = Arc::new(AtomicBool::new(false));
+    let should_exit_clone = Arc::clone(&should_exit);
+    ctrlc::set_handler(move || {
+        should_exit_clone.store(true, Ordering::SeqCst);
+    })?;
+
+    let selected = match app_selector::run_selection_tui(all_items, &home, &should_exit, true)? {
+        app_selector::TuiResult::Selected(items) => items,
+        app_selector::TuiResult::Aborted => {
             println!("{}", style("Aborted. No changes made.").yellow());
             return Ok(());
         }
@@ -209,7 +217,7 @@ pub fn run_wizard() -> Result<()> {
         app::save_local(&local_path, &local)?;
     }
 
-    guess_primary_configs(&roost_dir, &profile_name, &mut config, &local)?;
+    app::guess_primary_configs(&roost_dir, &profile_name, &mut config, &local)?;
     app::validate_shared(&config)?;
     app::save_shared(&shared_path, &config)?;
     println!("{}", style("Config written.").green());
@@ -237,39 +245,5 @@ pub fn run_wizard() -> Result<()> {
         style(app_count).green().bold()
     );
 
-    Ok(())
-}
-
-/// For apps with exactly one file, automatically set `primary_config`
-/// so the user can press `o` in the TUI without an extra step.
-fn guess_primary_configs(
-    roost_dir: &std::path::Path,
-    profile_name: &str,
-    config: &mut app::SharedAppConfig,
-    local: &app::LocalAppConfig,
-) -> color_eyre::Result<()> {
-    for (app_name, app) in config.apps.iter_mut() {
-        if app.primary_config.is_some() {
-            continue;
-        }
-        let Some(original_base) = local.link_paths.get(app_name) else {
-            continue;
-        };
-        if !app.is_dir {
-            // Single-file app (stored in misc/): the app itself is the primary config.
-            app.primary_config = Some(original_base.clone());
-        } else {
-            let app_dir = roost_dir.join(profile_name).join(app_name);
-            let entries: Vec<_> = match std::fs::read_dir(&app_dir) {
-                Ok(it) => it.filter_map(|e| e.ok()).collect(),
-                Err(_) => continue,
-            };
-            if entries.len() == 1 {
-                if let Some(name) = entries[0].file_name().to_str() {
-                    app.primary_config = Some(original_base.join(name));
-                }
-            }
-        }
-    }
     Ok(())
 }

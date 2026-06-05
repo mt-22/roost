@@ -99,6 +99,40 @@ fn migrate_shared(raw: &str) -> String {
     raw.to_string()
 }
 
+/// For apps with exactly one file, automatically set `primary_config`
+/// so the user can press `o` in the TUI without an extra step.
+pub fn guess_primary_configs(
+    roost_dir: &Path,
+    profile_name: &str,
+    config: &mut SharedAppConfig,
+    local: &LocalAppConfig,
+) -> Result<()> {
+    for (app_name, app) in config.apps.iter_mut() {
+        if app.primary_config.is_some() {
+            continue;
+        }
+        let Some(original_base) = local.link_paths.get(app_name) else {
+            continue;
+        };
+        if !app.is_dir {
+            // Single-file app (stored in misc/): the app itself is the primary config.
+            app.primary_config = Some(original_base.clone());
+        } else {
+            let app_dir = roost_dir.join(profile_name).join(app_name);
+            let entries: Vec<_> = match std::fs::read_dir(&app_dir) {
+                Ok(it) => it.filter_map(|e| e.ok()).collect(),
+                Err(_) => continue,
+            };
+            if entries.len() == 1 {
+                if let Some(name) = entries[0].file_name().to_str() {
+                    app.primary_config = Some(original_base.join(name));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn validate_shared(config: &SharedAppConfig) -> Result<()> {
     // Check that apps referenced by profiles exist in the apps map
     for (profile_name, profile) in &config.profiles {

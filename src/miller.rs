@@ -53,6 +53,9 @@ pub struct MillerColumns {
     /// When set, only these indices are shown in the current (last) column.
     filtered_indices: Option<Vec<usize>>,
     filtered_cursor: usize,
+    /// Path to the primary config file for the currently selected app.
+    /// If set, the matching entry is highlighted with a `★` marker.
+    primary_config: Option<PathBuf>,
 }
 
 impl MillerColumns {
@@ -65,6 +68,7 @@ impl MillerColumns {
             selected: HashSet::new(),
             filtered_indices: None,
             filtered_cursor: 0,
+            primary_config: None,
         }
     }
 
@@ -76,6 +80,18 @@ impl MillerColumns {
         self.columns = vec![column];
         self.filtered_indices = None;
         self.filtered_cursor = 0;
+        self.primary_config = None;
+    }
+
+    /// Set the primary config path for the currently selected app.
+    /// This is used to highlight the primary config file in the miller columns.
+    pub fn set_primary_config(&mut self, path: Option<PathBuf>) {
+        self.primary_config = path;
+    }
+
+    /// Get the primary config path.
+    pub fn primary_config(&self) -> Option<&PathBuf> {
+        self.primary_config.as_ref()
     }
 
     pub fn set_filter(&mut self, indices: Vec<usize>) {
@@ -286,6 +302,7 @@ impl Widget for &MillerColumns {
                     &self.selected,
                     false,
                     None,
+                    self.primary_config.as_deref(),
                 );
             } else {
                 render_empty(buf, chunks[0]);
@@ -330,6 +347,7 @@ impl Widget for &MillerColumns {
             &self.selected,
             true,
             Some(&current_title),
+            self.primary_config.as_deref(),
         );
 
         let preview_chunk = if narrow { chunks[1] } else { chunks[2] };
@@ -349,6 +367,7 @@ impl Widget for &MillerColumns {
                             &self.selected,
                             false,
                             None,
+                            self.primary_config.as_deref(),
                         )
                     }
                     Err(_) => render_empty(buf, preview_chunk),
@@ -376,6 +395,7 @@ pub(crate) fn render_entries(
     selected: &HashSet<PathBuf>,
     is_active_column: bool,
     title: Option<&str>,
+    primary_config: Option<&Path>,
 ) {
     let border_color = if is_active_column {
         Color::Cyan
@@ -423,12 +443,15 @@ pub(crate) fn render_entries(
         let is_sel = selected.contains(&path);
         let is_hl = highlight_path.is_some_and(|hp| hp == path);
         let is_cur = active_cursor == Some(idx);
+        let is_primary = primary_config.is_some_and(|pc| pc == path);
 
         let suffix = if is_dir { "/" } else { "" };
 
-        // Prefix: cursor indicator or selected indicator
+        // Prefix: cursor indicator, selected indicator, or primary config marker
         let prefix = if is_cur {
             "» "
+        } else if is_primary {
+            "★ "
         } else if is_sel {
             "✓ "
         } else {
@@ -447,6 +470,10 @@ pub(crate) fn render_entries(
                 .add_modifier(Modifier::BOLD)
         } else if is_hl {
             Style::default().bg(Color::DarkGray).fg(Color::White)
+        } else if is_primary {
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD)
         } else if is_sel {
             Style::default()
                 .fg(Color::Green)

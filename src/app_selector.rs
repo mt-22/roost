@@ -24,8 +24,6 @@ use crate::scanner::{DiscoveredItem, ItemType};
 use crate::tui::confirm::{ConfirmAction, ConfirmDialog, render_confirm_dialog};
 use crate::tui::search::FuzzyEngine;
 
-static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     ScanResults,
@@ -51,15 +49,20 @@ struct App {
     in_search: bool,
     pre_search_scan_cursor: usize,
     confirm_dialog: Option<ConfirmDialog>,
+    help_visible: bool,
+    help_scroll: usize,
+    help_search: FuzzyEngine,
 }
 
 impl App {
-    fn new(mut scan_items: Vec<DiscoveredItem>, root_path: &Path) -> Self {
+    fn new(mut scan_items: Vec<DiscoveredItem>, root_path: &Path, auto_select: bool) -> Self {
         scan_items.sort_by(|a, b| b.confidence.cmp(&a.confidence));
         let mut selected_indices = HashSet::new();
-        for (i, item) in scan_items.iter().enumerate() {
-            if item.confidence >= 150 {
-                selected_indices.insert(i);
+        if auto_select {
+            for (i, item) in scan_items.iter().enumerate() {
+                if item.confidence >= 150 {
+                    selected_indices.insert(i);
+                }
             }
         }
         let mut miller = MillerColumns::new(root_path);
@@ -79,6 +82,9 @@ impl App {
             in_search: false,
             pre_search_scan_cursor: 0,
             confirm_dialog: None,
+            help_visible: false,
+            help_scroll: 0,
+            help_search: FuzzyEngine::new(),
         }
     }
 
@@ -245,6 +251,26 @@ impl App {
         let end = (scroll + visible).min(total);
         (scroll, end)
     }
+
+    fn toggle_help(&mut self) {
+        self.help_visible = !self.help_visible;
+        if self.help_visible {
+            self.help_scroll = 0;
+            self.help_search.clear();
+        }
+    }
+
+    fn help_bindings(&self) -> Vec<(&str, &str)> {
+        vec![
+            ("?", "help"),
+            ("j/k", "nav"),
+            ("Tab", "focus"),
+            ("/", "search"),
+            ("Space", "select"),
+            ("Enter", "confirm"),
+            ("Esc", "cancel"),
+        ]
+    }
 }
 
 fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
@@ -263,7 +289,12 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result
     Ok(())
 }
 
-pub fn run_selection_tui(scan_items: Vec<DiscoveredItem>, root_path: &Path) -> Result<TuiResult> {
+pub fn run_selection_tui(
+    scan_items: Vec<DiscoveredItem>,
+    root_path: &Path,
+    should_exit: &AtomicBool,
+    auto_select: bool,
+) -> Result<TuiResult> {
     let mut terminal = setup_terminal()?;
 
     let original_hook = std::panic::take_hook();
@@ -273,13 +304,7 @@ pub fn run_selection_tui(scan_items: Vec<DiscoveredItem>, root_path: &Path) -> R
         original_hook(info);
     }));
 
-    SHOULD_EXIT.store(false, Ordering::SeqCst);
-
-    ctrlc::set_handler(|| {
-        SHOULD_EXIT.store(true, Ordering::SeqCst);
-    })?;
-
-    let result = run_app(&mut terminal, scan_items, root_path);
+    let result = run_app(&mut terminal, scan_items, root_path, should_exit, auto_select);
 
     restore_terminal(&mut terminal)?;
 
@@ -294,8 +319,10 @@ fn run_app(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     scan_items: Vec<DiscoveredItem>,
     root_path: &Path,
+    should_exit: &AtomicBool,
+    auto_select: bool,
 ) -> Result<Vec<DiscoveredItem>> {
-    let mut app = App::new(scan_items, root_path);
+    let mut app = App::new(scan_items, root_path, auto_select);
 
     loop {
         terminal.draw(|f| {
@@ -310,7 +337,11 @@ fn run_app(
             render_content_with_panel(f, main_chunks[1], &mut app);
             render_status_bar(f, main_chunks[2], &app);
 
-            if app.in_search {
+            if app.help_visible {
+                render_help_overlay(f, &app);
+            }
+
+            if app.in_search && !app.help_visible {
                 render_search_overlay(f, &app);
             }
 
@@ -319,7 +350,7 @@ fn run_app(
             }
         })?;
 
-        if SHOULD_EXIT.load(Ordering::Relaxed) {
+        if should_exit.load(Ordering::Relaxed) {
             return Err(color_eyre::eyre::eyre!("aborted"));
         }
 
@@ -335,6 +366,51 @@ fn run_app(
                 match key.code {
                     KeyCode::Char('y') => dialog.confirm(),
                     KeyCode::Char('n') | KeyCode::Esc => dialog.cancel(),
+                    _ => {}
+                }
+                continue;
+            }
+
+            if app.help_visible {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => {
+                        app.toggle_help();
+                        continue;
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        if app.help_scroll > 0 {
+                            app.help_scroll -= 1;
+                        }
+                        continue;
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        app.help_scroll += 1;
+                        continue;
+                    }
+                    KeyCode::Backspace => {
+                        app.help_search.backspace();
+                        if app.help_search.query().is_empty() {
+                            app.help_search.clear();
+                        } else {
+                            let names: Vec<String> = app
+                                .help_bindings()
+                                .iter()
+                                .map(|(k, d)| format!("{} {}", k, d))
+                                .collect();
+                            app.help_search.filter(&names);
+                        }
+                        continue;
+                    }
+                    KeyCode::Char(c) => {
+                        app.help_search.push_char(c);
+                        let names: Vec<String> = app
+                            .help_bindings()
+                            .iter()
+                            .map(|(k, d)| format!("{} {}", k, d))
+                            .collect();
+                        app.help_search.filter(&names);
+                        continue;
+                    }
                     _ => {}
                 }
                 continue;
@@ -452,6 +528,9 @@ fn run_app(
                         app.clear_search();
                     }
                 },
+                KeyCode::Char('?') => {
+                    app.toggle_help();
+                }
                 KeyCode::Char('/') => {
                     app.activate_search();
                 }
@@ -669,6 +748,83 @@ fn render_selected_panel(frame: &mut ratatui::Frame, area: Rect, app: &App) {
     frame.render_widget(paragraph, inner);
 }
 
+fn render_help_overlay(frame: &mut ratatui::Frame, app: &App) {
+    let area = frame.area();
+    let popup_width = 50u16.min(area.width.saturating_sub(4)).max(20);
+    let popup_height = 14u16.min(area.height.saturating_sub(4)).max(6);
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .title(" Help ");
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let bindings = app.help_bindings();
+    let filtered: Vec<(usize, &(&str, &str))> = if app.help_search.query().is_empty() {
+        bindings.iter().enumerate().collect()
+    } else {
+        app.help_search
+            .matches()
+            .iter()
+            .map(|m| (m.index, &bindings[m.index]))
+            .collect()
+    };
+
+    let visible = inner.height as usize;
+    let scroll = app.help_scroll.min(filtered.len().saturating_sub(visible));
+    let end = (scroll + visible).min(filtered.len());
+
+    let lines: Vec<Line> = filtered[scroll..end]
+        .iter()
+        .map(|(_, (key, desc))| {
+            Line::from(vec![
+                Span::styled(
+                    format!("{:<10}", key),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(*desc, Style::default().fg(Color::White)),
+            ])
+        })
+        .collect();
+
+    frame.render_widget(ratatui::widgets::Paragraph::new(lines), inner);
+
+    // Render search hint if active
+    if !app.help_search.query().is_empty() {
+        let query = app.help_search.query();
+        let match_count = app.help_search.match_count();
+        let hint = if match_count == 0 {
+            "no matches".to_string()
+        } else if match_count == 1 {
+            "1 match".to_string()
+        } else {
+            format!("{} matches", match_count)
+        };
+        let hint_line = Line::from(vec![
+            Span::styled("› ", Style::default().fg(Color::Yellow)),
+            Span::styled(query, Style::default().fg(Color::White)),
+            Span::styled(format!("  {}", hint), Style::default().fg(Color::DarkGray)),
+        ]);
+        let hint_area = Rect::new(
+            inner.x,
+            inner.y + inner.height.saturating_sub(1),
+            inner.width,
+            1,
+        );
+        frame.render_widget(ratatui::widgets::Paragraph::new(hint_line), hint_area);
+    }
+}
+
 fn render_search_overlay(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let popup_width = 40u16.min(area.width.saturating_sub(4)).max(20);
@@ -767,6 +923,7 @@ fn render_status_bar(frame: &mut ratatui::Frame, area: Rect, app: &App) {
         ])
     } else {
         let hints = vec![
+            ("?", "help"),
             ("j/k", "nav"),
             ("Tab", "focus"),
             ("/", "search"),

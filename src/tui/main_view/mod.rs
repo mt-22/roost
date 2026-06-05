@@ -5,6 +5,7 @@ pub mod ui;
 
 pub use state::MainViewState;
 
+use std::collections::HashSet;
 use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -235,7 +236,23 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
         }
         Action::SetPrimary { app, path } => {
             if let Some(app_entry) = state.shared.apps.get_mut(&app) {
-                app_entry.primary_config = Some(path);
+                // Convert internal roost path to original path (symlink target)
+                let resolved = if let Some(original_base) = state.local.link_paths.get(&app) {
+                    let app_dir = crate::app::profile_dir(&state.roost_dir, &state.local.active_profile)
+                        .join(&app);
+                    if path.starts_with(&app_dir) {
+                        if let Ok(rel) = path.strip_prefix(&app_dir) {
+                            original_base.join(rel)
+                        } else {
+                            path
+                        }
+                    } else {
+                        path
+                    }
+                } else {
+                    path
+                };
+                app_entry.primary_config = Some(resolved);
                 let shared_path = app::shared_config_path(&state.roost_dir);
                 let _ = app::save_shared(&shared_path, &state.shared);
                 state.status_message = Some(format!("Set primary config for '{}'", app));
@@ -312,48 +329,95 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 app, target_profile
             ));
         }
-        Action::AddApp { name, path } => {
+        Action::SuspendForAddApp => {
+            let roost_dir = state.roost_dir.clone();
             let profile_name = state.local.active_profile.clone();
-            let pdir = crate::app::profile_dir(&state.roost_dir, &profile_name);
-            let is_dir = path.is_dir();
-            if state.shared.apps.contains_key(&name) {
-                state.status_message = Some(format!("App '{}' already managed.", name));
-            } else {
-                match crate::linker::ingest(&path, &pdir, &name, is_dir) {
-                    Ok(()) => {
-                        state.shared.apps.insert(
-                            name.clone(),
-                            crate::app::Application {
-                                primary_config: None,
-                                on_profiles: {
-                                    let mut s = std::collections::BTreeSet::new();
-                                    s.insert(profile_name.clone());
-                                    s
-                                },
-                                is_dir,
-                                ignore: Vec::new(),
-                            },
-                        );
-                        if let Some(profile) = state.shared.profiles.get_mut(&profile_name) {
-                            profile.apps.insert(name.clone());
+            let ignored: HashSet<String> = state.shared.ignored.iter().cloned().collect();
+            let result = suspend_and_run(|| {
+                let home = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+                let sources = crate::scanner::default_scan_sources(&home);
+                let scan_items = crate::scanner::scan_sources(&sources, &ignored);
+                match crate::app_selector::run_selection_tui(scan_items, &home, &SHOULD_EXIT, false)? {
+                    crate::app_selector::TuiResult::Selected(items) => Ok(items),
+                    crate::app_selector::TuiResult::Aborted => Ok(Vec::new()),
+                }
+            });
+            state.needs_redraw = true;
+            match result {
+                Ok(items) if !items.is_empty() => {
+                    let pdir = crate::app::profile_dir(&roost_dir, &profile_name);
+                    let mut added = Vec::new();
+                    let mut failures = Vec::new();
+                    for item in &items {
+                        let app_name = if item.name.starts_with('.') && item.name.len() > 1 {
+                            &item.name[1..]
+                        } else {
+                            &item.name
+                        };
+                        let app_name = if app_name.is_empty() { &item.name } else { app_name };
+                        if state.shared.apps.contains_key(app_name) {
+                            failures.push(format!("'{}' already managed", app_name));
+                            continue;
                         }
-                        state.local.link_paths.insert(name.clone(), path);
-                        let shared_path = crate::app::shared_config_path(&state.roost_dir);
-                        let local_path = crate::app::local_config_path(&state.roost_dir);
+                        let is_dir = item.item_type == crate::scanner::ItemType::Dir;
+                        match crate::linker::ingest(&item.path, &pdir, app_name, is_dir) {
+                            Ok(()) => {
+                                state.shared.apps.insert(
+                                    app_name.to_string(),
+                                    crate::app::Application {
+                                        primary_config: None,
+                                        on_profiles: {
+                                            let mut s = std::collections::BTreeSet::new();
+                                            s.insert(profile_name.clone());
+                                            s
+                                        },
+                                        is_dir,
+                                        ignore: Vec::new(),
+                                    },
+                                );
+                                if let Some(profile) = state.shared.profiles.get_mut(&profile_name) {
+                                    profile.apps.insert(app_name.to_string());
+                                }
+                                state.local.link_paths.insert(app_name.to_string(), item.path.clone());
+                                added.push(app_name.to_string());
+                            }
+                            Err(e) => {
+                                failures.push(format!("'{}': {}", app_name, e));
+                            }
+                        }
+                    }
+                    if !added.is_empty() {
+                        let _ = crate::app::guess_primary_configs(
+                            &roost_dir,
+                            &profile_name,
+                            &mut state.shared,
+                            &state.local,
+                        );
+                        let shared_path = crate::app::shared_config_path(&roost_dir);
+                        let local_path = crate::app::local_config_path(&roost_dir);
                         let _ = crate::app::save_shared(&shared_path, &state.shared);
                         let _ = crate::app::save_local(&local_path, &state.local);
                         let _ = crate::gitignore::regenerate(
-                            &state.roost_dir,
+                            &roost_dir,
                             &state.shared.ignored,
                             &state.shared.apps,
                         );
-                        let _ = crate::linker::ensure_links(&state.shared, &state.local, &state.roost_dir);
-                        state.pending_auto_commit = Some(format!("add: {}", name));
-                        state.status_message = Some(format!("Added '{}'", name));
+                        let _ = crate::linker::ensure_links(&state.shared, &state.local, &roost_dir);
+                        let names = added.join(", ");
+                        state.pending_auto_commit = Some(format!("add: {}", names));
+                        state.status_message = Some(format!("Added {} app(s)", added.len()));
                     }
-                    Err(e) => {
-                        state.status_message = Some(format!("Add failed: {}", e));
+                    if !failures.is_empty() {
+                        let msg = format!("Failures: {}", failures.join("; "));
+                        state.status_message = Some(msg);
                     }
+                    state.sync_miller_to_selected_app();
+                }
+                Ok(_) => {
+                    state.status_message = Some("No apps selected".to_string());
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Add app failed: {}", e));
                 }
             }
         }

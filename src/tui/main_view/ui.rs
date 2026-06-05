@@ -1,9 +1,9 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
-    Frame,
 };
 
 use crate::tui::confirm::render_confirm_dialog;
@@ -15,7 +15,7 @@ pub fn render(state: &mut MainViewState, frame: &mut Frame) {
 
     let vertical = Layout::vertical([
         Constraint::Length(1), // header
-        Constraint::Min(1),   // main content
+        Constraint::Min(1),    // main content
         Constraint::Length(1), // status bar
     ])
     .split(area);
@@ -49,9 +49,6 @@ pub fn render(state: &mut MainViewState, frame: &mut Frame) {
     if let Some(ref app_link) = state.app_link_dialog {
         render_app_link_dialog(frame, app_link, state);
     }
-    if let Some(ref add_app) = state.add_app_dialog {
-        render_add_app_dialog(frame, add_app);
-    }
     if let Some(ref diff) = state.diff_view {
         render_diff_view_dialog(frame, diff);
     }
@@ -63,9 +60,19 @@ pub fn render(state: &mut MainViewState, frame: &mut Frame) {
 
 fn render_header(state: &MainViewState, frame: &mut Frame, area: Rect) {
     let line = Line::from(vec![
-        Span::styled("roost", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         Span::styled(
-            format!(" · profile: {}  {} app{} managed", state.active_profile_name(), state.app_count(), if state.app_count() == 1 { "" } else { "s" }),
+            "roost",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(
+                " · profile: {}  {} app{} managed",
+                state.active_profile_name(),
+                state.app_count(),
+                if state.app_count() == 1 { "" } else { "s" }
+            ),
             Style::default().fg(Color::White),
         ),
     ]);
@@ -114,16 +121,13 @@ fn render_apps_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
         .take(end - scroll)
         .map(|(i, name)| {
             let is_cursor = i == state.app_cursor;
-            let has_primary = state.has_primary_config(name);
             let source = state
                 .shared
                 .profiles
                 .get(state.active_profile_name())
                 .and_then(|p| p.app_sources.get(*name));
 
-            let marker = if has_primary {
-                "★ "
-            } else if source.is_some() {
+            if source.is_some() {
                 "← "
             } else {
                 "  "
@@ -141,11 +145,7 @@ fn render_apps_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
 
             let line = Line::from(vec![
                 Span::styled(cursor_prefix, Style::default().fg(Color::Yellow)),
-                Span::styled(marker, Style::default().fg(Color::Cyan)),
-                Span::styled(
-                    truncate_str(name, (inner.width as usize).saturating_sub(6)),
-                    name_style,
-                ),
+                Span::styled(truncate_str(name, inner.width as usize - 6), name_style),
             ]);
 
             let style = if is_cursor {
@@ -178,13 +178,16 @@ fn render_files_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) 
 
     let vertical = Layout::vertical([
         Constraint::Length(1), // " Files " header
-        Constraint::Min(1),   // miller columns
+        Constraint::Min(1),    // miller columns
     ])
     .split(area);
 
-    let header_line = Line::from(vec![
-        Span::styled(" Files ", Style::default().fg(header_color).add_modifier(Modifier::BOLD)),
-    ]);
+    let header_line = Line::from(vec![Span::styled(
+        " Files ",
+        Style::default()
+            .fg(header_color)
+            .add_modifier(Modifier::BOLD),
+    )]);
     frame.render_widget(Paragraph::new(header_line), vertical[0]);
 
     if vertical[1].width == 0 || vertical[1].height == 0 {
@@ -200,11 +203,12 @@ fn render_files_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) 
 
 fn render_status_bar(state: &MainViewState, frame: &mut Frame, area: Rect) {
     let parts = if let Some(ref msg) = state.status_message {
-        vec![Span::styled(msg.clone(), Style::default().fg(Color::Yellow))]
+        vec![Span::styled(
+            msg.clone(),
+            Style::default().fg(Color::Yellow),
+        )]
     } else {
         let base = vec![
-            Span::styled("?", key_style()),
-            Span::styled(" help  ", Style::default().fg(Color::DarkGray)),
             Span::styled("j", key_style()),
             Span::styled("/", Style::default().fg(Color::DarkGray)),
             Span::styled("k", key_style()),
@@ -217,6 +221,8 @@ fn render_status_bar(state: &MainViewState, frame: &mut Frame, area: Rect) {
             Span::styled(" miller  ", Style::default().fg(Color::DarkGray)),
             Span::styled("/", key_style()),
             Span::styled(" search  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("?", key_style()),
+            Span::styled(" help  ", Style::default().fg(Color::DarkGray)),
             Span::styled("q", key_style()),
             Span::styled(" quit", Style::default().fg(Color::DarkGray)),
         ];
@@ -282,10 +288,14 @@ fn key_style() -> Style {
 // Search overlay
 // ------------------------------------------------------------------
 
-fn render_search_overlay(_state: &MainViewState, frame: &mut Frame, search: &crate::tui::main_view::state::SearchState) {
+fn render_search_overlay(
+    _state: &MainViewState,
+    frame: &mut Frame,
+    search: &crate::tui::main_view::state::SearchState,
+) {
     let area = frame.area();
     let popup_width = 40u16.min(area.width.saturating_sub(4)).max(20);
-    let popup_height = 3u16.clamp(3, area.height.saturating_sub(4));
+    let popup_height = 3u16.min(area.height.saturating_sub(4)).max(3);
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = (area.height.saturating_sub(popup_height)) / 2;
     let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
@@ -377,16 +387,20 @@ fn render_help_dialog(frame: &mut Frame, help: &crate::tui::main_view::dialogs::
             let line = Line::from(vec![
                 Span::styled(
                     format!("{:>12}", entry.key),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled("  ", Style::default()),
                 Span::styled(
-                    truncate_str(entry.description, (inner.width as usize).saturating_sub(14)),
+                    truncate_str(entry.description, inner.width as usize - 14),
                     Style::default().fg(Color::White),
                 ),
             ]);
             let style = if is_cursor {
-                Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -440,22 +454,22 @@ fn render_profile_dialog(
     }
 
     // Split inner area into content + footer hint
-    let chunks = Layout::vertical([
-        Constraint::Min(1),
-        Constraint::Length(1),
-    ])
-    .split(inner);
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
     let content_area = chunks[0];
     let hint_area = chunks[1];
 
     // Footer hint showing all modes with current one highlighted
     let switch_style = if profile.mode == ProfileMode::Switch {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
     let create_style = if profile.mode == ProfileMode::Create {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
@@ -473,7 +487,10 @@ fn render_profile_dialog(
         Span::styled("Delete", delete_style),
         Span::styled("  — Tab to cycle", Style::default().fg(Color::DarkGray)),
     ]);
-    frame.render_widget(Paragraph::new(hint_line).alignment(ratatui::layout::Alignment::Center), hint_area);
+    frame.render_widget(
+        Paragraph::new(hint_line).alignment(ratatui::layout::Alignment::Center),
+        hint_area,
+    );
 
     match profile.mode {
         ProfileMode::Switch | ProfileMode::Delete => {
@@ -495,12 +512,14 @@ fn render_profile_dialog(
                     let line = Line::from(vec![
                         Span::styled(marker, Style::default().fg(Color::Green)),
                         Span::styled(
-                            truncate_str(name, (content_area.width as usize).saturating_sub(4)),
+                            truncate_str(name, content_area.width as usize - 4),
                             Style::default().fg(Color::White),
                         ),
                     ]);
                     let style = if is_cursor {
-                        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default()
                     };
@@ -518,7 +537,7 @@ fn render_profile_dialog(
             let chunks = Layout::vertical([
                 Constraint::Length(1), // name input
                 Constraint::Length(1), // copy current toggle
-                Constraint::Min(1),   // space
+                Constraint::Min(1),    // space
             ])
             .split(content_area);
 
@@ -535,14 +554,20 @@ fn render_profile_dialog(
                 "[ ] Start empty"
             };
             let toggle_line = Line::from(vec![
-                Span::styled("Space ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Space ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(toggle, Style::default().fg(Color::White)),
             ]);
             frame.render_widget(Paragraph::new(toggle_line), chunks[1]);
 
-            let hint = Line::from(vec![
-                Span::styled("Tab: cycle modes  Enter: create", Style::default().fg(Color::DarkGray)),
-            ]);
+            let hint = Line::from(vec![Span::styled(
+                "Tab: cycle modes  Enter: create",
+                Style::default().fg(Color::DarkGray),
+            )]);
             frame.render_widget(Paragraph::new(hint), chunks[2]);
         }
     }
@@ -584,7 +609,7 @@ fn render_ignore_dialog(
         IgnoreMode::Add => {
             let chunks = Layout::vertical([
                 Constraint::Length(1), // input
-                Constraint::Min(1),   // hint
+                Constraint::Min(1),    // hint
             ])
             .split(inner);
 
@@ -595,9 +620,10 @@ fn render_ignore_dialog(
             ]);
             frame.render_widget(Paragraph::new(input_line), chunks[0]);
 
-            let hint = Line::from(vec![
-                Span::styled("Tab: cycle modes  Enter: add  Esc: close", Style::default().fg(Color::DarkGray)),
-            ]);
+            let hint = Line::from(vec![Span::styled(
+                "Tab: cycle modes  Enter: add  Esc: close",
+                Style::default().fg(Color::DarkGray),
+            )]);
             frame.render_widget(Paragraph::new(hint), chunks[1]);
         }
         IgnoreMode::Remove => {
@@ -614,14 +640,14 @@ fn render_ignore_dialog(
                 .take(end - scroll)
                 .map(|(i, pat)| {
                     let is_cursor = i == ignore.cursor;
-                    let line = Line::from(vec![
-                        Span::styled(
-                            truncate_str(pat, (inner.width as usize).saturating_sub(4)),
-                            Style::default().fg(Color::White),
-                        ),
-                    ]);
+                    let line = Line::from(vec![Span::styled(
+                        truncate_str(pat, inner.width as usize - 4),
+                        Style::default().fg(Color::White),
+                    )]);
                     let style = if is_cursor {
-                        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default()
                     };
@@ -641,7 +667,7 @@ fn render_ignore_dialog(
 fn render_git_log_dialog(frame: &mut Frame, git_log: &crate::tui::main_view::dialogs::GitLogState) {
     let area = frame.area();
     let width = 58u16.min(area.width.saturating_sub(4)).max(40);
-    let height = 22u16.min(area.height.saturating_sub(4)).max(10);
+    let height = 20u16.min(area.height.saturating_sub(4)).max(10);
     let popup_x = (area.width.saturating_sub(width)) / 2;
     let popup_y = (area.height.saturating_sub(height)) / 2;
     let popup_area = Rect::new(popup_x, popup_y, width, height);
@@ -659,19 +685,12 @@ fn render_git_log_dialog(frame: &mut Frame, git_log: &crate::tui::main_view::dia
         return;
     }
 
-    let chunks = Layout::vertical([
-        Constraint::Min(1),
-        Constraint::Length(1),
-    ])
-    .split(inner);
-    let content_area = chunks[0];
-    let hint_area = chunks[1];
-
-    let visible = content_area.height as usize;
+    let visible = inner.height as usize;
     let _total = git_log.commits.len();
     let (scroll, end) = git_log.scroll_for_visible(visible);
 
-    let items: Vec<ListItem> = git_log.commits
+    let items: Vec<ListItem> = git_log
+        .commits
         .iter()
         .enumerate()
         .skip(scroll)
@@ -682,15 +701,19 @@ fn render_git_log_dialog(frame: &mut Frame, git_log: &crate::tui::main_view::dia
             let line = Line::from(vec![
                 Span::styled(
                     format!("{:<7} ", short_hash),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    truncate_str(&commit.message, (content_area.width as usize).saturating_sub(10)),
+                    truncate_str(&commit.message, inner.width as usize - 10),
                     Style::default().fg(Color::White),
                 ),
             ]);
             let style = if is_cursor {
-                Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -702,21 +725,7 @@ fn render_git_log_dialog(frame: &mut Frame, git_log: &crate::tui::main_view::dia
     let mut list_state = ListState::default();
     let cursor_in_view = git_log.cursor.saturating_sub(scroll);
     list_state.select(Some(cursor_in_view));
-    frame.render_stateful_widget(list, content_area, &mut list_state);
-
-    let hint_line = Line::from(vec![
-        Span::styled("r", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled(" rollback  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("j", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled("/", Style::default().fg(Color::DarkGray)),
-        Span::styled("k", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled(" nav  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled("/", Style::default().fg(Color::DarkGray)),
-        Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled(" close", Style::default().fg(Color::DarkGray)),
-    ]);
-    frame.render_widget(Paragraph::new(hint_line).alignment(ratatui::layout::Alignment::Center), hint_area);
+    frame.render_stateful_widget(list, inner, &mut list_state);
 }
 
 fn render_undo_dialog(frame: &mut Frame, undo: &crate::tui::main_view::dialogs::UndoState) {
@@ -726,7 +735,9 @@ fn render_undo_dialog(frame: &mut Frame, undo: &crate::tui::main_view::dialogs::
 
     let _text_width = (width as usize).saturating_sub(4);
     let lines_needed = undo.message.lines().count().max(1);
-    let height = (lines_needed as u16 + 5).min(area.height.saturating_sub(4)).max(6);
+    let height = (lines_needed as u16 + 5)
+        .min(area.height.saturating_sub(4))
+        .max(6);
     let popup_y = (area.height.saturating_sub(height)) / 2;
     let popup_area = Rect::new(popup_x, popup_y, width, height);
 
@@ -739,22 +750,35 @@ fn render_undo_dialog(frame: &mut Frame, undo: &crate::tui::main_view::dialogs::
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
 
-    let chunks = Layout::vertical([
-        Constraint::Min(1),
-        Constraint::Length(1),
-    ])
-    .split(inner);
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
 
-    let message_lines: Vec<Line> = undo.message.lines()
-        .map(|line| Line::from(Span::styled(line.to_string(), Style::default().fg(Color::White))))
+    let message_lines: Vec<Line> = undo
+        .message
+        .lines()
+        .map(|line| {
+            Line::from(Span::styled(
+                line.to_string(),
+                Style::default().fg(Color::White),
+            ))
+        })
         .collect();
     let message_para = Paragraph::new(message_lines);
     frame.render_widget(message_para, chunks[0]);
 
     let buttons = Line::from(vec![
-        Span::styled("y", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "y",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" / ", Style::default().fg(Color::DarkGray)),
-        Span::styled("n", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "n",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]);
     let buttons_para = Paragraph::new(buttons).alignment(ratatui::layout::Alignment::Center);
     frame.render_widget(buttons_para, chunks[1]);
@@ -825,12 +849,14 @@ fn render_app_link_dialog(
                     let line = Line::from(vec![
                         Span::styled(marker, Style::default().fg(Color::Green)),
                         Span::styled(
-                            truncate_str(name, (inner.width as usize).saturating_sub(4)),
+                            truncate_str(name, inner.width as usize - 4),
                             Style::default().fg(Color::White),
                         ),
                     ]);
                     let style = if is_cursor {
-                        Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default()
                     };
@@ -864,14 +890,14 @@ fn render_app_link_dialog(
                     .take(end - scroll)
                     .map(|(i, app)| {
                         let is_cursor = i == app_link.cursor;
-                        let line = Line::from(vec![
-                            Span::styled(
-                                truncate_str(app, (inner.width as usize).saturating_sub(4)),
-                                Style::default().fg(Color::White),
-                            ),
-                        ]);
+                        let line = Line::from(vec![Span::styled(
+                            truncate_str(app, inner.width as usize - 4),
+                            Style::default().fg(Color::White),
+                        )]);
                         let style = if is_cursor {
-                            Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                            Style::default()
+                                .bg(Color::DarkGray)
+                                .add_modifier(Modifier::BOLD)
                         } else {
                             Style::default()
                         };
@@ -890,9 +916,10 @@ fn render_app_link_dialog(
             if let Some(ref profile) = app_link.selected_profile {
                 if let Some(app) = state.selected_app() {
                     let confirm_text = format!("Copy '{}' to profile '{}' ?", app, profile);
-                    let line = Line::from(vec![
-                        Span::styled(confirm_text, Style::default().fg(Color::White)),
-                    ]);
+                    let line = Line::from(vec![Span::styled(
+                        confirm_text,
+                        Style::default().fg(Color::White),
+                    )]);
                     frame.render_widget(Paragraph::new(line), inner);
                 }
             }
@@ -900,7 +927,10 @@ fn render_app_link_dialog(
     }
 }
 
-fn render_diff_view_dialog(frame: &mut Frame, diff: &crate::tui::main_view::dialogs::DiffViewState) {
+fn render_diff_view_dialog(
+    frame: &mut Frame,
+    diff: &crate::tui::main_view::dialogs::DiffViewState,
+) {
     let area = frame.area();
     let width = 72u16.min(area.width.saturating_sub(4)).max(40);
     let height = (area.height as f32 * 0.8) as u16;
@@ -924,7 +954,8 @@ fn render_diff_view_dialog(frame: &mut Frame, diff: &crate::tui::main_view::dial
     let visible = inner.height as usize;
     let end = (diff.scroll + visible).min(diff.lines.len());
 
-    let lines: Vec<Line> = diff.lines
+    let lines: Vec<Line> = diff
+        .lines
         .iter()
         .skip(diff.scroll)
         .take(end - diff.scroll)
@@ -949,79 +980,13 @@ fn render_diff_view_dialog(frame: &mut Frame, diff: &crate::tui::main_view::dial
     frame.render_widget(paragraph, inner);
 }
 
-fn render_add_app_dialog(
-    frame: &mut Frame,
-    add_app: &crate::tui::main_view::dialogs::AddAppState,
-) {
-    use crate::tui::main_view::dialogs::AddAppFocus;
-
-    let area = frame.area();
-    let width = area.width.saturating_sub(4).max(40);
-    let height = area.height.saturating_sub(4).max(12);
-    let popup_x = (area.width.saturating_sub(width)) / 2;
-    let popup_y = (area.height.saturating_sub(height)) / 2;
-    let popup_area = Rect::new(popup_x, popup_y, width, height);
-
-    frame.render_widget(Clear, popup_area);
-
-    let border_color = match add_app.focus {
-        AddAppFocus::Browser => Color::Yellow,
-        AddAppFocus::NameInput => Color::Cyan,
-    };
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color))
-        .title(" Add App ");
-    let inner = block.inner(popup_area);
-    frame.render_widget(block, popup_area);
-
-    if inner.width == 0 || inner.height == 0 {
-        return;
-    }
-
-    // Split into miller area + name input area
-    let chunks = Layout::vertical([
-        Constraint::Min(1),
-        Constraint::Length(1),
-    ])
-    .split(inner);
-    let miller_area = chunks[0];
-    let input_area = chunks[1];
-
-    // Render the Miller columns
-    frame.render_widget(&add_app.miller, miller_area);
-
-    // Name input line
-    let effective_name = add_app.effective_name();
-    let input_color = if add_app.focus == AddAppFocus::NameInput {
-        Color::White
-    } else {
-        Color::DarkGray
-    };
-    let input_line = Line::from(vec![
-        Span::styled("Name: ", Style::default().fg(Color::Yellow)),
-        Span::styled(
-            if add_app.name_input.is_empty() {
-                effective_name.as_deref().unwrap_or("")
-            } else {
-                &add_app.name_input
-            },
-            Style::default().fg(input_color),
-        ),
-        if add_app.focus == AddAppFocus::NameInput {
-            Span::styled("_", Style::default().fg(Color::Yellow))
-        } else {
-            Span::styled("", Style::default())
-        },
-    ]);
-    frame.render_widget(Paragraph::new(input_line), input_area);
-}
-
 fn truncate_str(s: &str, max_width: usize) -> String {
     if s.chars().count() <= max_width {
         s.to_string()
     } else {
-        s.chars().take(max_width.saturating_sub(1)).collect::<String>() + "…"
+        s.chars()
+            .take(max_width.saturating_sub(1))
+            .collect::<String>()
+            + "…"
     }
 }

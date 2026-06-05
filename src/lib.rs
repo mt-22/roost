@@ -4,7 +4,7 @@ pub mod data;
 pub mod git;
 pub mod gitignore;
 pub mod init;
-pub mod init_tui;
+pub mod app_selector;
 pub mod linker;
 pub mod logo;
 pub mod miller;

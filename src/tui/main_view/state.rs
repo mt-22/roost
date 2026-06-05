@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::app::{LocalAppConfig, SharedAppConfig};
 use crate::miller::MillerColumns;
 use crate::tui::confirm::ConfirmDialog;
-use crate::tui::main_view::dialogs::{AddAppState, AppLinkState, DiffViewState, GitLogState, HelpState, IgnoreState, ProfileState, UndoState};
+use crate::tui::main_view::dialogs::{AppLinkState, DiffViewState, GitLogState, HelpState, IgnoreState, ProfileState, UndoState};
 use crate::tui::search::FuzzyEngine;
 
 /// Which panel currently receives keyboard input.
@@ -44,12 +44,12 @@ pub struct MainViewState {
     pub git_log_dialog: Option<GitLogState>,
     pub undo_dialog: Option<UndoState>,
     pub app_link_dialog: Option<AppLinkState>,
-    pub add_app_dialog: Option<AddAppState>,
     pub diff_view: Option<DiffViewState>,
 
     // Meta
     pub status_message: Option<String>,
     pub pending_auto_commit: Option<String>,
+    pub pending_action: Option<crate::tui::main_view::event::Action>,
     pub needs_redraw: bool,
     pub quit: bool,
 }
@@ -96,10 +96,10 @@ impl MainViewState {
             git_log_dialog: None,
             undo_dialog: None,
             app_link_dialog: None,
-            add_app_dialog: None,
             diff_view: None,
             status_message: None,
             pending_auto_commit: None,
+            pending_action: None,
             needs_redraw: false,
             quit: false,
         };
@@ -165,15 +165,59 @@ impl MainViewState {
 
     /// Re-root the Miller columns to the directory of the currently selected app.
     /// For cross-profile linked apps this points at the source profile's copy.
+    /// If the app has a primary_config, navigates to it and highlights it.
     pub fn sync_miller_to_selected_app(&mut self) {
-        if let Some(app_name) = self.selected_app() {
-            let app_dir = if let Some(source) = self.selected_app_source() {
-                crate::app::profile_dir(&self.roost_dir, source).join(app_name)
+        let Some(app_name) = self.selected_app().cloned() else { return; };
+        let app_dir = if let Some(source) = self.selected_app_source() {
+            crate::app::profile_dir(&self.roost_dir, source).join(&app_name)
+        } else {
+            crate::app::profile_dir(&self.roost_dir, &self.local.active_profile)
+                .join(&app_name)
+        };
+        self.miller.set_root(&app_dir);
+
+        // Set primary config highlight and navigate cursor to it
+        if let Some(primary) = self.shared.apps.get(&app_name).and_then(|a| a.primary_config.clone()) {
+            // Convert original path to internal roost path for miller comparison
+            let internal_primary = if let Some(original_base) = self.local.link_paths.get(&app_name) {
+                if primary.starts_with(original_base) {
+                    if let Ok(rel) = primary.strip_prefix(original_base) {
+                        app_dir.join(rel)
+                    } else {
+                        primary.clone()
+                    }
+                } else {
+                    primary.clone()
+                }
             } else {
-                crate::app::profile_dir(&self.roost_dir, &self.local.active_profile)
-                    .join(app_name)
+                primary.clone()
             };
-            self.miller.set_root(&app_dir);
+            self.miller.set_primary_config(Some(internal_primary.clone()));
+
+            // Navigate to the primary config if it's within subdirectories
+            if internal_primary.starts_with(&app_dir) {
+                if let Ok(rel) = internal_primary.strip_prefix(&app_dir) {
+                    for component in rel.parent().unwrap_or(std::path::Path::new("")).components() {
+                        let comp_str = component.as_os_str().to_string_lossy();
+                        let entries = self.miller.current_entries();
+                        if let Some(idx) = entries.iter().position(|e| {
+                            e.file_name().to_string_lossy() == comp_str
+                                && e.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                        }) {
+                            self.miller.set_current_cursor(idx);
+                            self.miller.navigate_down();
+                        }
+                    }
+                    // Finally, focus on the file itself
+                    let file_name = rel.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+                    let entries = self.miller.current_entries();
+                    if let Some(idx) = entries.iter().position(|e| e.file_name().to_string_lossy() == file_name) {
+                        self.miller.set_current_cursor(idx);
+                    }
+                }
+            }
+        } else {
+            self.miller.set_primary_config(None);
         }
     }
 
