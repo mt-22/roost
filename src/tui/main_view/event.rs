@@ -775,10 +775,12 @@ fn handle_git_log(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                         );
                     }
                     Err(e) => {
-                        message.push_str(&format!(
-                            "\n\nWARNING: Could not read roost.toml at this commit ({}).\nAll current apps will be treated as preserved.",
+                        state.git_log_dialog = None;
+                        return vec![Action::SetStatus(format!(
+                            "Cannot rollback: could not read roost.toml at {} ({})",
+                            &hash[..7],
                             e
-                        ));
+                        ))];
                     }
                 }
 
