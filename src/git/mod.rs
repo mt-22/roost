@@ -210,7 +210,27 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
     let mut merged = local_config.clone();
     let mut config_conflicts: Vec<String> = Vec::new();
 
-    // merge apps: union by key, detect genuine conflicts
+    // merge ignored: preference-aware
+    match preference {
+        ConflictPreference::Local => {
+            for pattern in &remote_config.ignored {
+                if merged.ignored.insert(pattern.clone()) {
+                    config_conflicts.push(format!("ignored added: '{}' (kept local)", pattern));
+                }
+            }
+        }
+        ConflictPreference::Remote => {
+            for pattern in &local_config.ignored {
+                if !remote_config.ignored.contains(pattern) {
+                    config_conflicts.push(format!("ignored removed: '{}' (remote)", pattern));
+                }
+            }
+            merged.ignored = remote_config.ignored.clone();
+        }
+    }
+
+    // merge apps: preference-aware with field-level reconciliation
+    // First, add/merge remote apps into merged
     for (name, remote_app) in &remote_config.apps {
         if let Some(local_app) = merged.apps.get(name) {
             if local_app.is_dir != remote_app.is_dir {
@@ -229,31 +249,103 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
                     }
                 ));
                 merged.apps.insert(name.clone(), winner);
+            } else {
+                // Same is_dir — reconcile other fields per preference
+                match preference {
+                    ConflictPreference::Remote => {
+                        let mut winner = remote_app.clone();
+                        winner.is_dir = local_app.is_dir; // same, no conflict
+                        if local_app.primary_config != remote_app.primary_config {
+                            config_conflicts.push(format!(
+                                "apps.{}.primary_config: local={:?}, remote={:?}, kept remote",
+                                name, local_app.primary_config, remote_app.primary_config
+                            ));
+                        }
+                        if local_app.ignore != remote_app.ignore {
+                            config_conflicts.push(format!(
+                                "apps.{}.ignore: kept remote ({} patterns)",
+                                name,
+                                remote_app.ignore.len()
+                            ));
+                        }
+                        merged.apps.insert(name.clone(), winner);
+                    }
+                    ConflictPreference::Local => {
+                        // Keep local — no changes
+                    }
+                }
             }
         } else {
             merged.apps.insert(name.clone(), remote_app.clone());
+            config_conflicts.push(format!("apps.{}: added from remote", name));
         }
     }
 
-    // merge profiles: union by key, union app sets (additive)
+    // Remove apps that exist locally but not remotely when preference is Remote
+    if matches!(preference, ConflictPreference::Remote) {
+        let local_apps: Vec<String> = merged.apps.keys().cloned().collect();
+        for name in &local_apps {
+            if !remote_config.apps.contains_key(name) {
+                config_conflicts.push(format!("apps.{}: removed (not in remote)", name));
+                merged.apps.remove(name);
+                // Also remove from all profiles
+                for profile in merged.profiles.values_mut() {
+                    profile.apps.remove(name);
+                    profile.app_sources.remove(name);
+                }
+            }
+        }
+    }
+
+    // merge profiles: preference-aware
     for (name, remote_profile) in &remote_config.profiles {
         if let Some(local_profile) = merged.profiles.get_mut(name) {
-            for app in &remote_profile.apps {
-                local_profile.apps.insert(app.clone());
-            }
-            for (app_name, source) in &remote_profile.app_sources {
-                local_profile
-                    .app_sources
-                    .insert(app_name.clone(), source.clone());
+            match preference {
+                ConflictPreference::Remote => {
+                    // Replace profile membership with remote version entirely
+                    for app in &local_profile.apps {
+                        if !remote_profile.apps.contains(app) {
+                            config_conflicts.push(format!(
+                                "profiles.{}.apps removed: '{}' (remote)",
+                                name, app
+                            ));
+                        }
+                    }
+                    local_profile.apps = remote_profile.apps.clone();
+                    local_profile.app_sources = remote_profile.app_sources.clone();
+                }
+                ConflictPreference::Local => {
+                    // Union: keep local, add any new remote apps
+                    for app in &remote_profile.apps {
+                        if local_profile.apps.insert(app.clone()) {
+                            config_conflicts.push(format!(
+                                "profiles.{}.apps added: '{}' (remote)",
+                                name, app
+                            ));
+                        }
+                    }
+                    for (app_name, source) in &remote_profile.app_sources {
+                        local_profile
+                            .app_sources
+                            .insert(app_name.clone(), source.clone());
+                    }
+                }
             }
         } else {
             merged.profiles.insert(name.clone(), remote_profile.clone());
+            config_conflicts.push(format!("profiles.{}: added from remote", name));
         }
     }
 
-    // merge ignored: always additive
-    for pattern in &remote_config.ignored {
-        merged.ignored.insert(pattern.clone());
+    // Remove profiles that exist locally but not remotely when preference is Remote
+    if matches!(preference, ConflictPreference::Remote) {
+        let local_profiles: Vec<String> = merged.profiles.keys().cloned().collect();
+        for name in &local_profiles {
+            if !remote_config.profiles.contains_key(name) {
+                config_conflicts.push(format!("profiles.{}: removed (not in remote)", name));
+                merged.profiles.remove(name);
+            }
+        }
     }
 
     // write merged config and commit
