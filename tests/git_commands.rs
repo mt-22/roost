@@ -101,7 +101,7 @@ fn log_shows_multiple_commits() {
 }
 
 #[test]
-fn undo_removes_last_commit() {
+fn undo_creates_rollback_commit() {
     let tmp = TempDir::new().unwrap();
     let roost_dir = tmp.path().join("roost");
     setup_roost(&roost_dir);
@@ -114,12 +114,14 @@ fn undo_removes_last_commit() {
         .assert()
         .success();
 
+    // safe_rollback creates a forward commit, does not remove history
     Command::cargo_bin("roost")
         .unwrap()
         .env("ROOST_DIR", &roost_dir)
         .arg("log")
         .assert()
-        .stdout(predicate::str::contains("to-remove").not());
+        .stdout(predicate::str::contains("rollback to"))
+        .stdout(predicate::str::contains("to-remove"));
 }
 
 #[test]
@@ -138,12 +140,14 @@ fn undo_defaults_to_one() {
         .assert()
         .success();
 
+    // safe_rollback creates a forward commit, does not remove history
     Command::cargo_bin("roost")
         .unwrap()
         .env("ROOST_DIR", &roost_dir)
         .arg("log")
         .assert()
-        .stdout(predicate::str::contains("third-extra").not())
+        .stdout(predicate::str::contains("rollback to"))
+        .stdout(predicate::str::contains("third-extra"))
         .stdout(predicate::str::contains("second-extra"))
         .stdout(predicate::str::contains("first-extra"));
 }
