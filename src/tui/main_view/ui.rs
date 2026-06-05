@@ -26,7 +26,9 @@ pub fn render(state: &mut MainViewState, frame: &mut Frame) {
 
     // Overlays (drawn last so they appear on top)
     if let Some(ref search) = state.search {
-        render_search_overlay(state, frame, search);
+        if search.visible {
+            render_search_overlay(state, frame, search);
+        }
     }
     if let Some(ref dialog) = state.confirm_dialog {
         render_confirm_dialog(frame, dialog);
@@ -110,28 +112,59 @@ fn render_apps_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
         return;
     }
 
-    let visible = inner.height as usize;
-    let (scroll, end) = state.scroll_for_visible(visible);
-
     let apps = state.apps_in_active_profile();
-    let items: Vec<ListItem> = apps
+    if apps.is_empty() {
+        return;
+    }
+
+    let visible = inner.height as usize;
+    let is_search_active = state.is_search_active()
+        && state.search_target() == Some(SearchTarget::Apps);
+
+    let (indices, cursor_original_idx, scroll) = if is_search_active {
+        if let Some(ref search) = state.search {
+            let matches = search.engine.matches();
+            let cursor = search.engine.cursor();
+            let total = matches.len();
+            let scroll = if cursor >= visible {
+                cursor - visible + 1
+            } else {
+                0
+            };
+            let end = (scroll + visible).min(total);
+            let indices: Vec<usize> = matches
+                .iter()
+                .skip(scroll)
+                .take(end - scroll)
+                .map(|m| m.index)
+                .collect();
+            let cursor_original = search.engine.selected_index().unwrap_or(0);
+            (indices, cursor_original, scroll)
+        } else {
+            let (scroll, end) = state.scroll_for_visible(visible);
+            let indices: Vec<usize> = (scroll..end).collect();
+            (indices, state.app_cursor, scroll)
+        }
+    } else {
+        let (scroll, end) = state.scroll_for_visible(visible);
+        let indices: Vec<usize> = (scroll..end).collect();
+        (indices, state.app_cursor, scroll)
+    };
+
+    let items: Vec<ListItem> = indices
         .iter()
         .enumerate()
-        .skip(scroll)
-        .take(end - scroll)
-        .map(|(i, name)| {
-            let is_cursor = i == state.app_cursor;
-            let source = state
+        .map(|(_vi, &original_idx)| {
+            let name = apps[original_idx];
+            let is_cursor = original_idx == cursor_original_idx;
+
+            let source_prefix = state
                 .shared
                 .profiles
                 .get(state.active_profile_name())
-                .and_then(|p| p.app_sources.get(*name));
-
-            if source.is_some() {
-                "← "
-            } else {
-                "  "
-            };
+                .and_then(|p| p.app_sources.get(name))
+                .map(|_| "← ")
+                .unwrap_or("  ");
 
             let cursor_prefix = if is_cursor { "» " } else { "  " };
 
@@ -143,9 +176,11 @@ fn render_apps_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
                 Style::default().fg(Color::White)
             };
 
+            let max_name_width = inner.width.saturating_sub(4) as usize;
             let line = Line::from(vec![
                 Span::styled(cursor_prefix, Style::default().fg(Color::Yellow)),
-                Span::styled(truncate_str(name, inner.width as usize - 6), name_style),
+                Span::raw(source_prefix),
+                Span::styled(truncate_str(name, max_name_width), name_style),
             ]);
 
             let style = if is_cursor {
@@ -162,10 +197,16 @@ fn render_apps_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
 
     let list = List::new(items);
     let mut list_state = ListState::default();
-    let cursor_in_view = state.app_cursor.saturating_sub(scroll);
-    if !apps.is_empty() {
-        list_state.select(Some(cursor_in_view));
-    }
+    let cursor_in_view = if is_search_active {
+        if let Some(ref search) = state.search {
+            search.engine.cursor().saturating_sub(scroll)
+        } else {
+            0
+        }
+    } else {
+        state.app_cursor.saturating_sub(scroll)
+    };
+    list_state.select(Some(cursor_in_view));
     frame.render_stateful_widget(list, inner, &mut list_state);
 }
 
@@ -207,6 +248,26 @@ fn render_status_bar(state: &MainViewState, frame: &mut Frame, area: Rect) {
             msg.clone(),
             Style::default().fg(Color::Yellow),
         )]
+    } else if let Some(ref search) = state.search {
+        let query = search.engine.query();
+        let match_count = search.engine.match_count();
+        let hint = if query.is_empty() {
+            "all items".to_string()
+        } else if match_count == 0 {
+            "no matches".to_string()
+        } else if match_count == 1 {
+            "1 match".to_string()
+        } else {
+            format!("{} matches", match_count)
+        };
+        vec![
+            Span::styled("Fuzzy Search (/) ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                format!("[filter: \"{}\" | {}]", query, hint),
+                Style::default().fg(Color::White),
+            ),
+            Span::styled("  / edit filter", Style::default().fg(Color::DarkGray)),
+        ]
     } else {
         let base = vec![
             Span::styled("?", key_style()),
@@ -297,7 +358,7 @@ fn render_search_overlay(
 ) {
     let area = frame.area();
     let popup_width = 40u16.min(area.width.saturating_sub(4)).max(20);
-    let popup_height = 3u16.min(area.height.saturating_sub(4)).max(3);
+    let popup_height = 4u16.min(area.height.saturating_sub(4)).max(4);
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = (area.height.saturating_sub(popup_height)) / 2;
     let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
@@ -318,7 +379,8 @@ fn render_search_overlay(
     frame.render_widget(block, popup_area);
 
     let match_count = search.engine.match_count();
-    let hint = if search.query.is_empty() {
+    let query = search.engine.query();
+    let hint = if query.is_empty() {
         "all items".to_string()
     } else if match_count == 0 {
         "no matches".to_string()
@@ -330,7 +392,7 @@ fn render_search_overlay(
 
     let line = Line::from(vec![
         Span::styled("› ", Style::default().fg(Color::Yellow)),
-        Span::styled(&search.query, Style::default().fg(Color::White)),
+        Span::styled(query, Style::default().fg(Color::White)),
         Span::styled("_", Style::default().fg(Color::Yellow)),
     ]);
     frame.render_widget(

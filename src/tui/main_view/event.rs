@@ -50,7 +50,7 @@ pub fn handle_event(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
     }
 
     // 2. Search overlay.
-    if state.search.is_some() {
+    if state.search.as_ref().map(|s| s.visible).unwrap_or(false) {
         return handle_search(state, key);
     }
 
@@ -158,18 +158,25 @@ fn handle_confirm(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
 fn handle_search(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
     match key.code {
         KeyCode::Esc => {
-            state.search = None;
+            if let Some(ref mut search) = state.search {
+                search.visible = false;
+            }
             return vec![Action::Nop];
         }
         KeyCode::Enter => {
             let actions = apply_search_selection(state);
-            state.search = None;
+            if let Some(ref mut search) = state.search {
+                search.visible = false;
+            }
             return actions;
         }
         KeyCode::Backspace => {
             if let Some(ref mut search) = state.search {
-                if !search.query.is_empty() {
-                    search.query.pop();
+                search.engine.backspace();
+                if search.engine.query().is_empty() {
+                    state.search = None;
+                    state.miller.clear_filter();
+                } else {
                     apply_search_filter(state);
                 }
             }
@@ -205,7 +212,7 @@ fn handle_search(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
         }
         KeyCode::Char(c) => {
             if let Some(ref mut search) = state.search {
-                search.query.push(c);
+                search.engine.push_char(c);
             }
             apply_search_filter(state);
             return vec![Action::Nop];
@@ -240,13 +247,12 @@ fn apply_search_filter(state: &mut MainViewState) {
                 .iter()
                 .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
                 .collect();
-            let idx = {
-                let search = state.search.as_mut().expect("search active");
-                search.engine.filter(&names);
-                search.engine.selected_index()
-            };
-            if let Some(idx) = idx {
-                state.miller.set_current_cursor(idx);
+            let search = state.search.as_mut().expect("search active");
+            search.engine.filter(&names);
+            let indices: Vec<usize> = search.engine.matches().iter().map(|m| m.index).collect();
+            state.miller.set_filter(indices);
+            if let Some(idx) = search.engine.selected_index() {
+                state.miller.sync_filtered_cursor(idx);
             }
         }
     }
@@ -297,21 +303,36 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
     match key.code {
         // Navigation
         KeyCode::Char('j') => {
-            match state.focus {
-                Focus::AppsPanel => state.app_cursor_down(),
-                Focus::FilesPanel => state.miller.move_down(),
+            if state.is_search_active() {
+                if let Some(engine) = state.search_engine_mut() {
+                    engine.move_down();
+                }
+                sync_search_cursor(state);
+            } else {
+                match state.focus {
+                    Focus::AppsPanel => state.app_cursor_down(),
+                    Focus::FilesPanel => state.miller.move_down(),
+                }
             }
             vec![Action::Nop]
         }
         KeyCode::Char('k') => {
-            match state.focus {
-                Focus::AppsPanel => state.app_cursor_up(),
-                Focus::FilesPanel => state.miller.move_up(),
+            if state.is_search_active() {
+                if let Some(engine) = state.search_engine_mut() {
+                    engine.move_up();
+                }
+                sync_search_cursor(state);
+            } else {
+                match state.focus {
+                    Focus::AppsPanel => state.app_cursor_up(),
+                    Focus::FilesPanel => state.miller.move_up(),
+                }
             }
             vec![Action::Nop]
         }
         KeyCode::Tab => {
             state.focus = state.focus.toggle();
+            state.clear_search();
             vec![Action::Nop]
         }
         // h/l as "enter/exit" the focused area
@@ -324,6 +345,7 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                     } else {
                         state.miller.navigate_up();
                     }
+                    state.clear_search();
                     vec![Action::Nop]
                 }
             }
@@ -332,11 +354,13 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             match state.focus {
                 Focus::AppsPanel => {
                     state.focus = Focus::FilesPanel;
+                    state.clear_search();
                     vec![Action::Nop]
                 }
                 Focus::FilesPanel => {
                     if state.miller.current_cursor_is_dir() {
                         state.miller.navigate_down();
+                        state.clear_search();
                         vec![Action::Nop]
                     } else if let Some(path) = state.miller.current_cursor_path() {
                         vec![Action::OpenEditor(path)]
@@ -370,8 +394,8 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             engine.filter(&names);
             state.search = Some(SearchState {
                 engine,
-                query: String::new(),
                 target,
+                visible: true,
             });
             vec![Action::Nop]
         }

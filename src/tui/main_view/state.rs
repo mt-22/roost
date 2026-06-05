@@ -57,8 +57,8 @@ pub struct MainViewState {
 /// Active fuzzy-search overlay.
 pub struct SearchState {
     pub engine: FuzzyEngine,
-    pub query: String,
     pub target: SearchTarget,
+    pub visible: bool,
 }
 
 /// What domain the current search operates on.
@@ -266,5 +266,26 @@ impl MainViewState {
         self.miller = MillerColumns::new(&profile_dir);
         self.app_cursor = self.app_cursor.min(self.app_count().saturating_sub(1));
         self.sync_miller_to_selected_app();
+    }
+
+    /// Whether a search filter is currently active (overlay may be hidden).
+    pub fn is_search_active(&self) -> bool {
+        self.search.is_some()
+    }
+
+    /// Mutable access to the active search engine, if any.
+    pub fn search_engine_mut(&mut self) -> Option<&mut FuzzyEngine> {
+        self.search.as_mut().map(|s| &mut s.engine)
+    }
+
+    /// Target of the active search, if any.
+    pub fn search_target(&self) -> Option<SearchTarget> {
+        self.search.as_ref().map(|s| s.target)
+    }
+
+    /// Clear any active search filter.
+    pub fn clear_search(&mut self) {
+        self.search = None;
+        self.miller.clear_filter();
     }
 }
