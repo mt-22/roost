@@ -163,8 +163,11 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 
 | Area | Priority | Gap |
 |------|----------|-----|
-| **Main TUI + Dialogs** | **Done** | All 7 dialogs implemented. `roost` with no args launches full TUI. |
-| **File preview in Miller columns** | **P1** | Preview pane shows filenames only. SPEC wants inline content preview for files (first N lines). |
+| **File preview in Miller columns** | **Done** | Inline text preview + binary indicator. Responsive layout (drops parent column below 100 width). |
+| **Git Log UX improvements** | **Done** | `r` rollback documented in help, footer hint in dialog, stronger confirm warning. |
+| **Terminal size enforcement** | **Done** | Minimum 40x12 with graceful too-small message. Narrow-width panic fixed via saturating_sub. |
+| **Responsive miller columns** | **Done** | Drops parent column below 100 width, shows current dir name in header. |
+| **Add App dialog** | **P1** | `a` key shows placeholder message. Needs Miller-based file browser dialog for adding apps. |
 | **Restore from Git Log** | **P1** | Git Log dialog (`g`) can rollback (`r`), but cannot restore individual files or apps from a past commit. Need per-commit restore action. |
 | **Tilde-path serde** | **P2** | SPEC requires custom serde to serialize `~/...` in shared config. Currently uses plain PathBuf serde |
 | **Config migration** | **P2** | `migrate_shared()` is a no-op stub. Needs dual-format `apps` and `link_path` -> `link_paths` handling |
@@ -179,6 +182,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | No concurrency protection on config files | **Open** | File locking or atomic read-modify-write |
 | `git pull --rebase` failures | **Partial** | `sync()` surfaces conflicts but aborts rebase rather than prompting user |
 | Dialog states flat `Option<T>` on giant struct | **In use in Main TUI** | Consider state machine enum for type safety in future refactor |
+| Narrow terminal panic | **Fixed** | `saturating_sub` used for all width calculations; min size enforcement with graceful message |
 | `Esc` in onboarding without confirmation | **Fixed** | Already has discard confirmation |
 | Cross-profile symlink cycles | **Fixed** | `validate_shared()` detects cycles on config load |
 | `ensure_links` / `switch_links` error swallowing | **Fixed** | Both propagate errors properly |
@@ -276,10 +280,13 @@ The SPEC suggests this order for maximum testability. Current progress is throug
 
 **Recommended next sequence (user-directed):**
 1. ✅ **Streams 1-3** — Suspend/resume, Main TUI, Dialogs — all done
-2. ⬜ **File preview in Miller columns** — Inline content for files (first N lines), skip binary
-3. ⬜ **Restore from Git Log** — Per-commit restore: checkout individual files or apps from a past commit in the Git Log dialog
-4. ⬜ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, config migration
-5. ⬜ **Test coverage** (Stream 5) — sync.rs, init.rs
+2. ✅ **File preview in Miller columns** — Inline content for files (first N lines), skip binary
+3. ✅ **Git Log UX** — Rollback warning, footer hint, keybind documentation
+4. ✅ **Responsive miller + Terminal size enforcement** — Narrow terminal fixes, min size enforcement
+5. ⬜ **Add App dialog** — Miller-based file browser for adding apps from the TUI
+6. ⬜ **Restore from Git Log** — Per-commit restore: checkout individual files or apps from a past commit
+7. ⬜ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, config migration
+8. ⬜ **Test coverage** (Stream 5) — sync.rs, init.rs
 
 ---
 
