@@ -59,6 +59,7 @@ pub const KEYBINDS: &[KeybindEntry] = &[
     KeybindEntry { key: "i", description: "Manage ignore patterns" },
     KeybindEntry { key: "P", description: "Switch / create / delete profiles" },
     KeybindEntry { key: "g", description: "View git log" },
+    KeybindEntry { key: "r", description: "Rollback to selected commit (destructive)" },
     KeybindEntry { key: "d", description: "Show git diff" },
     KeybindEntry { key: "u", description: "Undo last commit" },
 ];
