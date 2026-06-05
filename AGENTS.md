@@ -67,6 +67,7 @@ src/
   gitignore.rs         -- .gitignore regeneration with managed blocks
 
 tests/                  -- Integration tests (~62 tests across 14 files)
+  sync.rs               -- Sync integration tests (no init, no remote, up-to-date, pull, push, conflict)
 ```
 
 ### Data Models
@@ -118,7 +119,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 **Dev dependencies:** `assert_cmd`, `predicates`, `tempfile`
 **Runtime external:** `git` CLI, `$EDITOR` (default `vi`), `$PAGER` (default `less`)
 
-**Test targets:** ~99+ tests total (~64 unit + ~62 integration). Most CLI commands now have integration test coverage.
+**Test targets:** ~112+ tests total (~68 unit + ~62 integration). Most CLI commands now have integration test coverage. Sync integration tests added.
 
 ---
 
@@ -170,17 +171,20 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | **Add App dialog** | **Done** | Reuses `app_selector.rs` for full adoption TUI; `auto_select=false` from main TUI. |
 | **Primary config highlight** | **Done** | `★` marker in Miller columns on primary config file; cursor auto-focuses on it. |
 | **Restore from Git Log** | **P1** | Git Log dialog (`g`) can rollback (`r`), but cannot restore individual files or apps from a past commit. Need per-commit restore action. |
-| **Tilde-path serde** | **P2** | SPEC requires custom serde to serialize `~/...` in shared config. Currently uses plain PathBuf serde |
+| **Tilde-path serde** | **Done** | Custom serde for `PathBuf` that serializes as `~/...` and deserializes using current home. Applied to `Application::primary_config`. |
 | **Config migration** | **P2** | `migrate_shared()` is a no-op stub. Needs dual-format `apps` and `link_path` -> `link_paths` handling |
-| **git push in sync** | **P2** | `sync()` fetches and rebases but never pushes. SPEC requires push |
-| **Concurrency protection** | **P2** | Config writes are not atomic (no temp file + rename) |
-| **Integration tests** | **P2** | Missing: sync, init. Done: diff, ignore, restore, rollback, adopt, list, save, where --profile |
+| **git push in sync** | **Done** | `sync()` now pushes to `origin main` after successful rebase. Tested in integration tests. |
+| **Concurrency protection** | **Done** | Config writes use atomic temp-file-then-rename pattern in `save_shared()`, `save_local()`, and `gitignore::regenerate()`. |
+| **Integration tests** | **P2** | Missing: init. Done: diff, ignore, restore, rollback, adopt, list, save, where --profile, **sync**. |
+| **Init reconstruction** | **Done** | When `roost.toml` exists but `local.toml` is missing, `roost init` now reconstructs `local.toml` by picking an existing profile and auto-discovering `link_paths` from common paths or existing symlinks. |
+| **Structural merge** | **Done** | Merge now handles field-level conflicts (`primary_config`, `ignore`), profile/app deletion on `Remote` preference, and ignored-pattern replacement — not just `is_dir`. |
+| **Rebase error handling** | **Done** | `rebase --continue` errors are propagated, not swallowed. `Local` preference no longer returns false `Clean` when `get_conflict_files()` returns empty. |
 
 ### Known Issues / Fragile Areas
 
 | Issue | Status | Fix Needed |
 |-------|--------|------------|
-| No concurrency protection on config files | **Open** | File locking or atomic read-modify-write |
+| No concurrency protection on config files | **Fixed** | Atomic writes via temp file + rename in `save_shared()`, `save_local()`, `gitignore::regenerate()` |
 | `git pull --rebase` failures | **Partial** | `sync()` surfaces conflicts but aborts rebase rather than prompting user |
 | Dialog states flat `Option<T>` on giant struct | **In use in Main TUI** | Consider state machine enum for type safety in future refactor |
 | Narrow terminal panic | **Fixed** | `saturating_sub` used for all width calculations; min size enforcement with graceful message |
@@ -189,6 +193,9 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | `ensure_links` / `switch_links` error swallowing | **Fixed** | Both propagate errors properly |
 | Temp backup clobbering | **Fixed** | Backups go to `.backups/` inside roost dir |
 | Git identity missing in test helpers | **Fixed** | All `setup_roost` helpers and `git::tests.rs` now set `user.name`/`user.email` |
+| Rebase --continue errors swallowed | **Fixed** | `git::sync()` now propagates `rebase --continue` failures and avoids false `SyncResult::Clean` |
+| Structural merge ignores most fields | **Fixed** | Merge now reconciles `primary_config`, `ignore`, profile/app deletions, and ignored patterns — not just `is_dir` |
+| No `ensure_links()` after sync | **Fixed** | Both CLI and TUI call `linker::ensure_links()` after successful sync |
 
 ---
 
@@ -246,6 +253,13 @@ Fix remaining backend gaps that affect both CLI and TUI.
 4. **Concurrency protection** — Atomic config writes via temp file + rename
 5. **File preview** — Inline content preview for files in Miller columns
 
+**Status:**
+- ✅ Tilde-path serde — Done
+- ⬜ Config migration — Still a no-op
+- ✅ git push in sync — Done
+- ✅ Concurrency protection — Done
+- ✅ File preview — Done (pre-existing)
+
 ### Stream 5: Test Coverage
 Fill in missing integration tests.
 
@@ -258,7 +272,7 @@ Fill in missing integration tests.
 - ✅ `tests/list.rs` — list command
 - ✅ `tests/save.rs` — save command
 - ✅ `tests/where.rs` — extend with `--profile` tests
-- ⬜ `tests/sync.rs` — sync command (critical gap, also tests git push)
+- ✅ `tests/sync.rs` — sync command (6 tests: no init, no remote, up-to-date, pulls remote, pushes local, detects conflict)
 - ⬜ `tests/init.rs` — init wizard + onboarding TUI (mock selection)
 
 ---
@@ -287,8 +301,8 @@ The SPEC suggests this order for maximum testability. Current progress is throug
 5. ✅ **Add App dialog** — Reuses `app_selector.rs` for full adoption TUI with multi-select
 6. ✅ **Primary config highlight** — `★` marker in Miller columns on primary config file; cursor auto-focuses on it
 7. ⬜ **Restore from Git Log** — Per-commit restore: checkout individual files or apps from a past commit
-7. ⬜ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, config migration
-8. ⬜ **Test coverage** (Stream 5) — sync.rs, init.rs
+7. ✅ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, config migration (except migrate_shared)
+8. ✅ **Test coverage** (Stream 5) — sync.rs done, init.rs still needed
 
 ---
 
