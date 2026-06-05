@@ -126,7 +126,7 @@ pub fn unlink(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> 
 // verify all configured symlinks exist, create missing ones, back up conflicts
 pub fn ensure_links(
     config: &SharedAppConfig,
-    local: &LocalAppConfig,
+    local: &mut LocalAppConfig,
     roost_dir: &Path,
 ) -> Result<Vec<String>> {
     let mut actions = Vec::new();
@@ -135,6 +135,9 @@ pub fn ensure_links(
         .profiles
         .get(profile_name)
         .ok_or_else(|| color_eyre::eyre::eyre!("active profile '{}' not found", profile_name))?;
+
+    let pdir = profile_dir(roost_dir, profile_name);
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
 
     for app_name in &profile.apps {
         let app = match config.apps.get(app_name) {
@@ -145,20 +148,48 @@ pub fn ensure_links(
             }
         };
 
-        let origin = match local.link_paths.get(app_name) {
-            Some(p) => p,
-            None => {
-                actions.push(format!("SKIP: no link_path for '{}'", app_name));
-                continue;
+        let dest = app_dest(&pdir, app_name, app.is_dir);
+
+        // If link_path is missing, try to auto-discover from existing symlinks
+        let origin = if let Some(p) = local.link_paths.get(app_name) {
+            p.clone()
+        } else {
+            let candidates = [
+                home.join(".config").join(app_name),
+                home.join(format!(".{}", app_name)),
+                home.join(app_name),
+            ];
+            let mut discovered: Option<PathBuf> = None;
+            for candidate in &candidates {
+                if candidate.is_symlink() {
+                    if let Ok(target) = fs::read_link(candidate) {
+                        if target == dest {
+                            discovered = Some(candidate.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+            match discovered {
+                Some(p) => {
+                    actions.push(format!(
+                        "AUTO-DISCOVERED link_path: {} -> {}",
+                        app_name,
+                        p.display()
+                    ));
+                    local.link_paths.insert(app_name.clone(), p.clone());
+                    p
+                }
+                None => {
+                    actions.push(format!("SKIP: no link_path for '{}'", app_name));
+                    continue;
+                }
             }
         };
 
-        let pdir = profile_dir(roost_dir, profile_name);
-        let dest = app_dest(&pdir, app_name, app.is_dir);
-
         // handle whatever is currently at origin
         if origin.is_symlink() {
-            let target = fs::read_link(origin)?;
+            let target = fs::read_link(&origin)?;
             if target == dest {
                 continue; // already correct
             }
@@ -167,7 +198,7 @@ pub fn ensure_links(
                 .join(BACKUP_DIR_NAME)
                 .join(format!("conflict-{}", app_name));
             fs::create_dir_all(roost_dir.join(BACKUP_DIR_NAME))?;
-            fs::rename(origin, &backup)?;
+            fs::rename(&origin, &backup)?;
             actions.push(format!(
                 "BACKED UP conflicting symlink: {} -> {}",
                 origin.display(),
@@ -179,8 +210,8 @@ pub fn ensure_links(
                 .join(BACKUP_DIR_NAME)
                 .join(format!("conflict-{}", app_name));
             fs::create_dir_all(roost_dir.join(BACKUP_DIR_NAME))?;
-            copy_dir_recursive(origin, &backup)?;
-            fs::remove_dir_all(origin)?;
+            copy_dir_recursive(&origin, &backup)?;
+            fs::remove_dir_all(&origin)?;
             actions.push(format!(
                 "BACKED UP conflicting path: {} -> {}",
                 origin.display(),
@@ -191,7 +222,7 @@ pub fn ensure_links(
         if let Some(parent) = origin.parent() {
             fs::create_dir_all(parent)?;
         }
-        create_symlink(&dest, origin, app.is_dir)?;
+        create_symlink(&dest, &origin, app.is_dir)?;
         actions.push(format!(
             "LINKED: {} -> {}",
             origin.display(),

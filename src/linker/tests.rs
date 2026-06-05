@@ -388,12 +388,12 @@ fn ensure_links_creates_missing_symlinks() {
         vec![("nvim", true), ("gitconfig", false)],
         vec!["nvim", "gitconfig"],
     );
-    let local = build_local(vec![
+    let mut local = build_local(vec![
         ("nvim", &nvim_origin),
         ("gitconfig", &gitconfig_origin),
     ]);
 
-    let actions = ensure_links(&config, &local, &roost).unwrap();
+    let actions = ensure_links(&config, &mut local, &roost).unwrap();
 
     // both origins should now be symlinks into roost
     assert_eq!(actions.len(), 2);
@@ -423,10 +423,10 @@ fn ensure_links_skips_already_correct() {
     create_symlink(&profile_dir.join("nvim"), &nvim_origin, true).unwrap();
 
     let config = build_config(vec![("nvim", true)], vec!["nvim"]);
-    let local = build_local(vec![("nvim", &nvim_origin)]);
+    let mut local = build_local(vec![("nvim", &nvim_origin)]);
 
     // nothing to do — should report no actions
-    let actions = ensure_links(&config, &local, &roost).unwrap();
+    let actions = ensure_links(&config, &mut local, &roost).unwrap();
     assert!(actions.is_empty());
 }
 
@@ -443,9 +443,9 @@ fn ensure_links_backs_up_conflicting_real_file() {
     create_file(&nvim_origin, "old.lua");
 
     let config = build_config(vec![("nvim", true)], vec!["nvim"]);
-    let local = build_local(vec![("nvim", &nvim_origin)]);
+    let mut local = build_local(vec![("nvim", &nvim_origin)]);
 
-    let actions = ensure_links(&config, &local, &roost).unwrap();
+    let actions = ensure_links(&config, &mut local, &roost).unwrap();
 
     // conflicting dir should be backed up before linking
     let backup = roost.join(".backups/conflict-nvim");
@@ -471,9 +471,9 @@ fn ensure_links_backs_up_wrong_symlink() {
     create_symlink(&wrong_target, &nvim_origin, true).unwrap();
 
     let config = build_config(vec![("nvim", true)], vec!["nvim"]);
-    let local = build_local(vec![("nvim", &nvim_origin)]);
+    let mut local = build_local(vec![("nvim", &nvim_origin)]);
 
-    let actions = ensure_links(&config, &local, &roost).unwrap();
+    let actions = ensure_links(&config, &mut local, &roost).unwrap();
 
     // wrong symlink backed up, origin now points to correct target
     let backup = roost.join(".backups/conflict-nvim");

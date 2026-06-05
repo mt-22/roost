@@ -234,7 +234,7 @@ pub fn run_wizard() -> Result<()> {
 
     crate::gitignore::regenerate(&roost_dir, &config.ignored, &config.apps)?;
 
-    let actions = linker::ensure_links(&config, &local, &roost_dir)?;
+    let actions = linker::ensure_links(&config, &mut local, &roost_dir)?;
     for action in &actions {
         println!("{}", style(action).dim());
     }
@@ -340,7 +340,7 @@ fn reconstruct_local(roost_dir: &Path, shared_path: std::path::PathBuf, local_pa
     app::save_local(&local_path, &local)?;
     println!("{}", style("Local config written.").green());
 
-    let actions = linker::ensure_links(&config, &local, roost_dir)?;
+    let actions = linker::ensure_links(&config, &mut local, roost_dir)?;
     if !actions.is_empty() {
         println!("{}", style("Link actions:").cyan());
         for action in &actions {

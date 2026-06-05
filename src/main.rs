@@ -372,7 +372,7 @@ fn cmd_add(path: &std::path::Path) -> Result<()> {
     let local_path = app::local_config_path(&roost_dir);
     app::save_shared(&shared_path, &shared)?;
     app::save_local(&local_path, &local)?;
-    let actions = linker::ensure_links(&shared, &local, &roost_dir)?;
+    let actions = linker::ensure_links(&shared, &mut local, &roost_dir)?;
     for action in actions {
         println!("{}", style(action).dim());
     }
@@ -413,8 +413,11 @@ fn cmd_sync() -> Result<()> {
     let result = git::sync(&roost_dir, git::ConflictPreference::Local)?;
 
     // Reload configs since sync may have changed roost.toml via structural merge
-    let (shared, local, _) = load_configs()?;
-    let actions = linker::ensure_links(&shared, &local, &roost_dir)?;
+    let (shared, mut local, _) = load_configs()?;
+    let actions = linker::ensure_links(&shared, &mut local, &roost_dir)?;
+    // Save local.toml in case ensure_links auto-discovered link_paths
+    let local_path = app::local_config_path(&roost_dir);
+    let _ = app::save_local(&local_path, &local);
 
     match result {
         git::SyncResult::Clean => println!("{}", style("Sync complete. Changes pushed to origin.").green()),
@@ -610,7 +613,7 @@ fn cmd_restore(app_name: &str) -> Result<()> {
 }
 
 fn cmd_doctor(fix: bool) -> Result<()> {
-    let (shared, local, roost_dir) = load_configs()?;
+    let (shared, mut local, roost_dir) = load_configs()?;
     let mut had_error = false;
     let mut had_warn = false;
     let profile_name = &local.active_profile;
@@ -763,7 +766,7 @@ fn cmd_doctor(fix: bool) -> Result<()> {
     }
 
     if fix {
-        let actions = linker::ensure_links(&shared, &local, &roost_dir)?;
+        let actions = linker::ensure_links(&shared, &mut local, &roost_dir)?;
         if !actions.is_empty() {
             println!("\n{}", style("== Auto-fix ==").bold());
             for action in &actions {

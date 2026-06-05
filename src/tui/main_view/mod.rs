@@ -63,11 +63,11 @@ pub fn run(
         SHOULD_EXIT.store(true, Ordering::SeqCst);
     })?;
 
-    let result = run_loop(&mut terminal, roost_dir, shared, local);
+    run_loop(&mut terminal, roost_dir, shared, local);
 
     restore_terminal(&mut terminal)?;
 
-    result
+    Ok(())
 }
 
 fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
@@ -110,25 +110,28 @@ fn run_loop(
     roost_dir: PathBuf,
     shared: SharedAppConfig,
     local: LocalAppConfig,
-) -> Result<()> {
+) {
     let mut state = MainViewState::new(roost_dir, shared, local);
 
     loop {
         if state.needs_redraw {
-            terminal.clear()?;
+            let _ = terminal.clear();
             state.needs_redraw = false;
         }
 
-        let size = terminal.size()?;
+        let size = match terminal.size() {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
         if size.width < MIN_WIDTH || size.height < MIN_HEIGHT {
             let area = Rect::new(0, 0, size.width, size.height);
-            terminal.draw(|f| {
+            let _ = terminal.draw(|f| {
                 render_too_small(f, area);
-            })?;
+            });
         } else {
-            terminal.draw(|f| {
+            let _ = terminal.draw(|f| {
                 render(&mut state, f);
-            })?;
+            });
         }
 
         if SHOULD_EXIT.load(Ordering::Relaxed) {
@@ -139,8 +142,15 @@ fn run_loop(
             break;
         }
 
-        if crossterm_poll(std::time::Duration::from_millis(100))? {
-            match crossterm_read()? {
+        if match crossterm_poll(std::time::Duration::from_millis(100)) {
+            Ok(b) => b,
+            Err(_) => continue,
+        } {
+            let key = match crossterm_read() {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            match key {
                 Event::Key(key) => {
                     if key.kind != KeyEventKind::Press {
                         continue;
@@ -166,8 +176,6 @@ fn run_loop(
             }
         }
     }
-
-    Ok(())
 }
 
 /// Execute a single action produced by the event handler.
@@ -236,9 +244,11 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                     // Reload configs from disk since sync may have mutated roost.toml
                     let shared_path = app::shared_config_path(&state.roost_dir);
                     let local_path = app::local_config_path(&state.roost_dir);
-                    if let (Ok(shared), Ok(local)) = (app::load_shared(&shared_path), app::load_local(&local_path)) {
-                        if let Ok(actions) = linker::ensure_links(&shared, &local, &state.roost_dir) {
+                    if let (Ok(shared), Ok(mut local)) = (app::load_shared(&shared_path), app::load_local(&local_path)) {
+                        if let Ok(actions) = linker::ensure_links(&shared, &mut local, &state.roost_dir) {
                             link_actions = actions;
+                            // Save local.toml in case ensure_links auto-discovered link_paths
+                            let _ = app::save_local(&local_path, &local);
                         }
                         state.reload_configs(shared, local);
                     }
@@ -270,6 +280,22 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                     Some(ref msg) => format!("{} {}", msg, summary),
                     None => summary,
                 });
+            }
+        }
+        Action::Save => {
+            let roost_dir = state.roost_dir.clone();
+            if !git::is_dirty(&roost_dir).unwrap_or(false) {
+                state.status_message = Some("Nothing to save.".to_string());
+            } else {
+                let commit_msg = match git::diff_stat(&roost_dir) {
+                    Ok(stat) if !stat.is_empty() => format!("save: {}", stat),
+                    _ => "save: manual save".to_string(),
+                };
+                match git::save(&roost_dir, &commit_msg) {
+                    Ok(true) => state.status_message = Some("Saved.".to_string()),
+                    Ok(false) => state.status_message = Some("Nothing to save.".to_string()),
+                    Err(e) => state.status_message = Some(format!("Save failed: {}", e)),
+                }
             }
         }
         Action::SwitchProfile(name) => {
@@ -448,7 +474,7 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                             &state.shared.ignored,
                             &state.shared.apps,
                         );
-                        let _ = crate::linker::ensure_links(&state.shared, &state.local, &roost_dir);
+                        let _ = crate::linker::ensure_links(&state.shared, &mut state.local, &roost_dir);
                         let names = added.join(", ");
                         state.pending_auto_commit = Some(format!("add: {}", names));
                         state.status_message = Some(format!("Added {} app(s)", added.len()));
@@ -494,11 +520,15 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             }
         }
         Action::Rollback(hash) => {
+            eprintln!("[DEBUG] Rollback action started for hash: {}", hash);
             let roost_dir = state.roost_dir.clone();
             let result = suspend_and_run(|| {
-                crate::git::rollback(&roost_dir, &hash)?;
-                Ok(())
+                eprintln!("[DEBUG] Inside suspend_and_run, calling git::rollback");
+                let res = crate::git::rollback(&roost_dir, &hash);
+                eprintln!("[DEBUG] git::rollback returned: {:?}", res);
+                res
             });
+            eprintln!("[DEBUG] suspend_and_run returned: {:?}", result);
             state.needs_redraw = true;
             match result {
                 Ok(()) => state.status_message = Some(format!("Rolled back to {}", &hash[..hash.len().min(7)])),
