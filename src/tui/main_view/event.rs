@@ -23,6 +23,7 @@ pub enum Action {
     SetPrimary { app: String, path: PathBuf },
     ImportApp { app: String, source_profile: String },
     CopyApp { app: String, target_profile: String },
+    AddApp { name: String, path: PathBuf },
     AddIgnore(String),
     RemoveIgnore(String),
     Undo,
@@ -82,12 +83,17 @@ pub fn handle_event(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
         return handle_app_link(state, key);
     }
 
-    // 9. Diff view dialog.
+    // 9. Add app dialog.
+    if state.add_app_dialog.is_some() {
+        return handle_add_app(state, key);
+    }
+
+    // 10. Diff view dialog.
     if state.diff_view.is_some() {
         return handle_diff_view(state, key);
     }
 
-    // 10. Base panel input.
+    // 11. Base panel input.
     handle_base(state, key)
 }
 
@@ -446,9 +452,10 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
 
         // Global actions
         KeyCode::Char('s') => vec![Action::Sync],
-        KeyCode::Char('a') => vec![Action::SetStatus(
-            "Add-app dialog not yet implemented — use `roost add <path>`".to_string(),
-        )],
+        KeyCode::Char('a') => {
+            state.add_app_dialog = Some(crate::tui::main_view::dialogs::AddAppState::new());
+            vec![Action::Nop]
+        }
         KeyCode::Char('i') => {
             state.ignore_dialog = Some(crate::tui::main_view::dialogs::IgnoreState::new());
             vec![Action::Nop]
@@ -847,6 +854,104 @@ fn handle_app_link(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                     }
                 }
             }
+            vec![Action::Nop]
+        }
+        _ => vec![Action::Nop],
+    }
+}
+
+// ------------------------------------------------------------------
+// Add app dialog
+// ------------------------------------------------------------------
+
+fn handle_add_app(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
+    use crate::tui::main_view::dialogs::AddAppFocus;
+
+    let Some(ref mut add_app) = state.add_app_dialog else {
+        return vec![Action::Nop];
+    };
+
+    // Search overlay within add-app dialog takes priority
+    if add_app.search.is_some() {
+        match key.code {
+            KeyCode::Esc => {
+                add_app.clear_search();
+                return vec![Action::Nop];
+            }
+            KeyCode::Enter => {
+                add_app.clear_search();
+                return vec![Action::Nop];
+            }
+            KeyCode::Backspace => {
+                add_app.backspace_search();
+                return vec![Action::Nop];
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                add_app.move_search_up();
+                return vec![Action::Nop];
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                add_app.move_search_down();
+                return vec![Action::Nop];
+            }
+            KeyCode::Char(c) => {
+                add_app.push_search_char(c);
+                return vec![Action::Nop];
+            }
+            _ => return vec![Action::Nop],
+        }
+    }
+
+    match key.code {
+        KeyCode::Esc => {
+            state.add_app_dialog = None;
+            vec![Action::Nop]
+        }
+        KeyCode::Tab => {
+            add_app.toggle_focus();
+            vec![Action::Nop]
+        }
+        KeyCode::Char('/') if add_app.focus == AddAppFocus::Browser => {
+            add_app.start_search();
+            vec![Action::Nop]
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if add_app.focus == AddAppFocus::Browser {
+                add_app.move_up();
+            }
+            vec![Action::Nop]
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if add_app.focus == AddAppFocus::Browser {
+                add_app.move_down();
+            }
+            vec![Action::Nop]
+        }
+        KeyCode::Char('h') => {
+            if add_app.focus == AddAppFocus::Browser {
+                add_app.navigate_up();
+            }
+            vec![Action::Nop]
+        }
+        KeyCode::Char('l') | KeyCode::Enter => {
+            if add_app.focus == AddAppFocus::Browser {
+                if add_app.miller.current_cursor_is_dir() {
+                    add_app.navigate_down();
+                } else if let Some(path) = add_app.selected_path() {
+                    if let Some(name) = add_app.effective_name() {
+                        state.add_app_dialog = None;
+                        return vec![Action::AddApp { name, path }];
+                    }
+                }
+            }
+            vec![Action::Nop]
+        }
+        KeyCode::Char(c) if add_app.focus == AddAppFocus::NameInput => {
+            add_app.push_char(c);
+            vec![Action::Nop]
+        }
+        KeyCode::Backspace if add_app.focus == AddAppFocus::NameInput => {
+            add_app.backspace();
             vec![Action::Nop]
         }
         _ => vec![Action::Nop],

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::app::{LocalAppConfig, SharedAppConfig};
 use crate::miller::MillerColumns;
 use crate::tui::confirm::ConfirmDialog;
-use crate::tui::main_view::dialogs::{AppLinkState, DiffViewState, GitLogState, HelpState, IgnoreState, ProfileState, UndoState};
+use crate::tui::main_view::dialogs::{AddAppState, AppLinkState, DiffViewState, GitLogState, HelpState, IgnoreState, ProfileState, UndoState};
 use crate::tui::search::FuzzyEngine;
 
 /// Which panel currently receives keyboard input.
@@ -44,6 +44,7 @@ pub struct MainViewState {
     pub git_log_dialog: Option<GitLogState>,
     pub undo_dialog: Option<UndoState>,
     pub app_link_dialog: Option<AppLinkState>,
+    pub add_app_dialog: Option<AddAppState>,
     pub diff_view: Option<DiffViewState>,
 
     // Meta
@@ -95,6 +96,7 @@ impl MainViewState {
             git_log_dialog: None,
             undo_dialog: None,
             app_link_dialog: None,
+            add_app_dialog: None,
             diff_view: None,
             status_message: None,
             pending_auto_commit: None,

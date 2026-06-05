@@ -1,3 +1,4 @@
+pub mod add_app;
 pub mod app_link;
 pub mod diff_view;
 pub mod git_log;
@@ -6,6 +7,7 @@ pub mod ignore;
 pub mod profile;
 pub mod undo;
 
+pub use add_app::{AddAppFocus, AddAppState};
 pub use app_link::{AppLinkAction, AppLinkState, AppLinkStep};
 pub use diff_view::DiffViewState;
 pub use git_log::GitLogState;

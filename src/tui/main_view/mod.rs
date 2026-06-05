@@ -312,6 +312,51 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 app, target_profile
             ));
         }
+        Action::AddApp { name, path } => {
+            let profile_name = state.local.active_profile.clone();
+            let pdir = crate::app::profile_dir(&state.roost_dir, &profile_name);
+            let is_dir = path.is_dir();
+            if state.shared.apps.contains_key(&name) {
+                state.status_message = Some(format!("App '{}' already managed.", name));
+            } else {
+                match crate::linker::ingest(&path, &pdir, &name, is_dir) {
+                    Ok(()) => {
+                        state.shared.apps.insert(
+                            name.clone(),
+                            crate::app::Application {
+                                primary_config: None,
+                                on_profiles: {
+                                    let mut s = std::collections::BTreeSet::new();
+                                    s.insert(profile_name.clone());
+                                    s
+                                },
+                                is_dir,
+                                ignore: Vec::new(),
+                            },
+                        );
+                        if let Some(profile) = state.shared.profiles.get_mut(&profile_name) {
+                            profile.apps.insert(name.clone());
+                        }
+                        state.local.link_paths.insert(name.clone(), path);
+                        let shared_path = crate::app::shared_config_path(&state.roost_dir);
+                        let local_path = crate::app::local_config_path(&state.roost_dir);
+                        let _ = crate::app::save_shared(&shared_path, &state.shared);
+                        let _ = crate::app::save_local(&local_path, &state.local);
+                        let _ = crate::gitignore::regenerate(
+                            &state.roost_dir,
+                            &state.shared.ignored,
+                            &state.shared.apps,
+                        );
+                        let _ = crate::linker::ensure_links(&state.shared, &state.local, &state.roost_dir);
+                        state.pending_auto_commit = Some(format!("add: {}", name));
+                        state.status_message = Some(format!("Added '{}'", name));
+                    }
+                    Err(e) => {
+                        state.status_message = Some(format!("Add failed: {}", e));
+                    }
+                }
+            }
+        }
         Action::AddIgnore(pattern) => {
             state.shared.ignored.insert(pattern.clone());
             let shared_path = app::shared_config_path(&state.roost_dir);

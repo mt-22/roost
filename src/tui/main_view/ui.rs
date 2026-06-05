@@ -49,6 +49,9 @@ pub fn render(state: &mut MainViewState, frame: &mut Frame) {
     if let Some(ref app_link) = state.app_link_dialog {
         render_app_link_dialog(frame, app_link, state);
     }
+    if let Some(ref add_app) = state.add_app_dialog {
+        render_add_app_dialog(frame, add_app);
+    }
     if let Some(ref diff) = state.diff_view {
         render_diff_view_dialog(frame, diff);
     }
@@ -944,6 +947,75 @@ fn render_diff_view_dialog(frame: &mut Frame, diff: &crate::tui::main_view::dial
 
     let paragraph = Paragraph::new(lines);
     frame.render_widget(paragraph, inner);
+}
+
+fn render_add_app_dialog(
+    frame: &mut Frame,
+    add_app: &crate::tui::main_view::dialogs::AddAppState,
+) {
+    use crate::tui::main_view::dialogs::AddAppFocus;
+
+    let area = frame.area();
+    let width = area.width.saturating_sub(4).max(40);
+    let height = area.height.saturating_sub(4).max(12);
+    let popup_x = (area.width.saturating_sub(width)) / 2;
+    let popup_y = (area.height.saturating_sub(height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, width, height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let border_color = match add_app.focus {
+        AddAppFocus::Browser => Color::Yellow,
+        AddAppFocus::NameInput => Color::Cyan,
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color))
+        .title(" Add App ");
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    // Split into miller area + name input area
+    let chunks = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .split(inner);
+    let miller_area = chunks[0];
+    let input_area = chunks[1];
+
+    // Render the Miller columns
+    frame.render_widget(&add_app.miller, miller_area);
+
+    // Name input line
+    let effective_name = add_app.effective_name();
+    let input_color = if add_app.focus == AddAppFocus::NameInput {
+        Color::White
+    } else {
+        Color::DarkGray
+    };
+    let input_line = Line::from(vec![
+        Span::styled("Name: ", Style::default().fg(Color::Yellow)),
+        Span::styled(
+            if add_app.name_input.is_empty() {
+                effective_name.as_deref().unwrap_or("")
+            } else {
+                &add_app.name_input
+            },
+            Style::default().fg(input_color),
+        ),
+        if add_app.focus == AddAppFocus::NameInput {
+            Span::styled("_", Style::default().fg(Color::Yellow))
+        } else {
+            Span::styled("", Style::default())
+        },
+    ]);
+    frame.render_widget(Paragraph::new(input_line), input_area);
 }
 
 fn truncate_str(s: &str, max_width: usize) -> String {
