@@ -216,14 +216,28 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             let roost_dir = state.roost_dir.clone();
             let result = suspend_and_run(|| {
                 git::save(&roost_dir, "Auto-commit before sync")?;
-                let _ = git::sync(&roost_dir, crate::git::ConflictPreference::Local);
-                Ok(())
+                let sync_result = git::sync(&roost_dir, crate::git::ConflictPreference::Local)?;
+                Ok(sync_result)
             });
             state.needs_redraw = true;
-            if let Err(e) = result {
-                state.status_message = Some(format!("Sync error: {}", e));
-            } else {
-                state.status_message = Some("Sync complete".to_string());
+            match result {
+                Ok(crate::git::SyncResult::Clean) => {
+                    state.status_message = Some("Sync complete. Pushed to origin.".to_string());
+                }
+                Ok(crate::git::SyncResult::ConfigConflict { resolved }) => {
+                    state.status_message = Some(format!(
+                        "Sync complete. {} config conflict(s) resolved. Pushed to origin.",
+                        resolved.len()
+                    ));
+                }
+                Ok(crate::git::SyncResult::FileConflict { .. }) => {
+                    state.status_message = Some(
+                        "Sync complete with file conflicts. Check status.".to_string(),
+                    );
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Sync error: {}", e));
+                }
             }
         }
         Action::SwitchProfile(name) => {

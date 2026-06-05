@@ -406,9 +406,9 @@ fn cmd_sync() -> Result<()> {
     let (_, _, roost_dir) = load_configs()?;
     let result = git::sync(&roost_dir, git::ConflictPreference::Local)?;
     match result {
-        git::SyncResult::Clean => println!("{}", style("Sync complete.").green()),
+        git::SyncResult::Clean => println!("{}", style("Sync complete. Changes pushed to origin.").green()),
         git::SyncResult::ConfigConflict { resolved } => {
-            println!("{}", style("Config conflicts resolved:").yellow());
+            println!("{}", style("Sync complete. Config conflicts resolved and pushed to origin.").yellow());
             for name in &resolved {
                 println!("  - {}", style(name).yellow().dim());
             }
@@ -416,7 +416,7 @@ fn cmd_sync() -> Result<()> {
         git::SyncResult::FileConflict { .. } => {
             println!(
                 "{}",
-                style("File conflicts detected. Manual resolution required.").red()
+                style("Sync complete with file conflicts. Manual resolution may be required.").yellow()
             );
         }
     }

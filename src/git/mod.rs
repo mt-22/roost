@@ -271,6 +271,9 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
         }
     }
 
+    // push merged/rebased state to remote
+    run_git(roost_dir, &["push", "origin", "main"])?;
+
     // rebase succeeded (or was resolved)
     if config_conflicts.is_empty() && backups.is_empty() {
         Ok(SyncResult::Clean)
