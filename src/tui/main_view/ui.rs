@@ -282,7 +282,7 @@ fn key_style() -> Style {
 fn render_search_overlay(_state: &MainViewState, frame: &mut Frame, search: &crate::tui::main_view::state::SearchState) {
     let area = frame.area();
     let popup_width = 40u16.min(area.width.saturating_sub(4)).max(20);
-    let popup_height = 3u16.min(area.height.saturating_sub(4)).max(3);
+    let popup_height = 3u16.clamp(3, area.height.saturating_sub(4));
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = (area.height.saturating_sub(popup_height)) / 2;
     let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
