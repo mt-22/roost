@@ -119,7 +119,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 **Dev dependencies:** `assert_cmd`, `predicates`, `tempfile`
 **Runtime external:** `git` CLI, `$EDITOR` (default `vi`), `$PAGER` (default `less`)
 
-**Test targets:** ~178 tests total (~108 unit + ~70 integration). Most CLI commands now have integration test coverage. Rollback and sync tests included.
+**Test targets:** ~174 tests total (~108 unit + ~65 integration + 1 doctest). Most CLI commands now have integration test coverage. Rollback and sync tests included.
 
 ---
 
@@ -128,7 +128,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 - **Color palette:** Cyan (focused borders), Yellow (key labels, dialog borders), DarkGray (unfocused, hints), Red (destructive confirms), Green (affirmative, active profile), White (bold highlights)
 - **Highlight:** `bg(DarkGray) + bold` for cursor
 - **Status bar:** Yellow keys, e.g. `j/k nav  Tab focus  / search  ...`
-- **Miller columns:** 3 equal thirds (Parent | Current | Preview)
+- **Miller columns:** Responsive: 3 equal thirds ≥100w, 2-col ≥55w, vertical stack < 55w
 - **Symbols:** `★` primary, `»` cursor, `←` sourced, `✓` selected, `●` bullet
 - **Dialog overlays:** Centered, bordered block with `Clear` widget behind
 
@@ -153,7 +153,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | Suspend/resume | **Done** | `tui/suspend.rs` implemented, wired into main TUI for $EDITOR/$PAGER/git |
 | Main TUI | **Done** | Full event loop, rendering, panel navigation, search, actions wired to main.rs |
 | Onboarding TUI | **Functional** | app_selector.rs works for roost init and add-app; has search, miller, confirm, signal handling |
-| Miller columns | **Solid** | Reusable widget with 10 unit tests |
+| Miller columns | **Solid** | Reusable widget with 10 unit tests, 3 responsive modes |
 | Fuzzy search | **Solid** | Reusable FuzzyEngine with tests |
 | Confirm dialog | **Solid** | Reusable yes/no dialog |
 | Symlink ops | **Solid** | ingest, restore, unlink, switch, import, copy all tested |
@@ -167,7 +167,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | **File preview in Miller columns** | **Done** | Inline text preview + binary indicator. Responsive layout (drops parent column below 100 width). |
 | **Git Log UX improvements** | **Done** | `r` rollback documented in help, footer hint in dialog, stronger confirm warning. |
 | **Terminal size enforcement** | **Done** | Minimum 40x12 with graceful too-small message. Narrow-width panic fixed via saturating_sub. |
-| **Responsive miller columns** | **Done** | Drops parent column below 100 width, shows current dir name in header. |
+| **Responsive miller columns** | **Done** | Three modes: 3-col horizontal ≥100, 2-col horizontal ≥55, vertical stack < 55. Shows current dir name in header. |
 | **Add App dialog** | **Done** | Reuses `app_selector.rs` for full adoption TUI; `auto_select=false` from main TUI. |
 | **Primary config highlight** | **Done** | `★` marker in Miller columns on primary config file; cursor auto-focuses on it. |
 | **Restore from Git Log** | **Done** | `git log` rollback (`g` → `r`) uses `safe_rollback`: selective checkout preserves apps not present at target commit, creates forward commit instead of destructive reset. |
@@ -298,11 +298,11 @@ The SPEC suggests this order for maximum testability. Current progress is throug
 1. ✅ **Streams 1-3** — Suspend/resume, Main TUI, Dialogs — all done
 2. ✅ **File preview in Miller columns** — Inline content for files (first N lines), skip binary
 3. ✅ **Git Log UX** — Rollback warning, footer hint, keybind documentation
-4. ✅ **Responsive miller + Terminal size enforcement** — Narrow terminal fixes, min size enforcement
+4. ✅ **Responsive miller + Terminal size enforcement** — Three modes: 3-col, 2-col, vertical stack. Min size enforcement, narrow-width safety
 5. ✅ **Add App dialog** — Reuses `app_selector.rs` for full adoption TUI with multi-select
 6. ✅ **Primary config highlight** — `★` marker in Miller columns on primary config file; cursor auto-focuses on it
 7. ✅ **Restore from Git Log** — Selective rollback preserves apps not at target commit, forward commit instead of destructive reset
-7. ✅ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, config migration (except migrate_shared)
+7. ✅ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, config migration removed
 8. ✅ **Test coverage** (Stream 5) — sync.rs done, init.rs still needed
 
 ---
