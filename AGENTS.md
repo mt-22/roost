@@ -33,8 +33,8 @@ src/
     tests.rs           -- Unit tests (19 tests)
 
   git/
-    mod.rs             -- Git CLI wrappers (commit, sync, log, diff, undo, rollback)
-    tests.rs           -- Unit tests (9 tests)
+    mod.rs             -- Git CLI wrappers (commit, sync, log, diff, undo, rollback, read_shared_at, safe_rollback)
+    tests.rs           -- Unit tests (11 tests)
 
   init.rs              -- roost init wizard (dialoguer-based prompts + onboarding TUI)
   app_selector.rs      -- App selection TUI (onboarding + add-app, monolithic, 819 lines)
@@ -119,7 +119,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 **Dev dependencies:** `assert_cmd`, `predicates`, `tempfile`
 **Runtime external:** `git` CLI, `$EDITOR` (default `vi`), `$PAGER` (default `less`)
 
-**Test targets:** ~112+ tests total (~68 unit + ~62 integration). Most CLI commands now have integration test coverage. Sync integration tests added.
+**Test targets:** ~178 tests total (~108 unit + ~70 integration). Most CLI commands now have integration test coverage. Rollback and sync tests included.
 
 ---
 
@@ -170,7 +170,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | **Responsive miller columns** | **Done** | Drops parent column below 100 width, shows current dir name in header. |
 | **Add App dialog** | **Done** | Reuses `app_selector.rs` for full adoption TUI; `auto_select=false` from main TUI. |
 | **Primary config highlight** | **Done** | `★` marker in Miller columns on primary config file; cursor auto-focuses on it. |
-| **Restore from Git Log** | **P1** | Git Log dialog (`g`) can rollback (`r`), but cannot restore individual files or apps from a past commit. Need per-commit restore action. |
+| **Restore from Git Log** | **Done** | `git log` rollback (`g` → `r`) uses `safe_rollback`: selective checkout preserves apps not present at target commit, creates forward commit instead of destructive reset. |
 | **Tilde-path serde** | **Done** | Custom serde for `PathBuf` that serializes as `~/...` and deserializes using current home. Applied to `Application::primary_config`. |
 | **Config migration** | **P2** | `migrate_shared()` is a no-op stub. Needs dual-format `apps` and `link_path` -> `link_paths` handling |
 | **git push in sync** | **Done** | `sync()` now pushes to `origin main` after successful rebase. Tested in integration tests. |
@@ -196,6 +196,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | Rebase --continue errors swallowed | **Fixed** | `git::sync()` now propagates `rebase --continue` failures and avoids false `SyncResult::Clean` |
 | Structural merge ignores most fields | **Fixed** | Merge now reconciles `primary_config`, `ignore`, profile/app deletions, and ignored patterns — not just `is_dir` |
 | No `ensure_links()` after sync | **Fixed** | Both CLI and TUI call `linker::ensure_links()` after successful sync |
+| `git reset --hard` in rollback destroys new apps | **Fixed** | `safe_rollback()` uses selective `git checkout` per app, preserving apps not at the target commit |
 
 ---
 
@@ -300,7 +301,7 @@ The SPEC suggests this order for maximum testability. Current progress is throug
 4. ✅ **Responsive miller + Terminal size enforcement** — Narrow terminal fixes, min size enforcement
 5. ✅ **Add App dialog** — Reuses `app_selector.rs` for full adoption TUI with multi-select
 6. ✅ **Primary config highlight** — `★` marker in Miller columns on primary config file; cursor auto-focuses on it
-7. ⬜ **Restore from Git Log** — Per-commit restore: checkout individual files or apps from a past commit
+7. ✅ **Restore from Git Log** — Selective rollback preserves apps not at target commit, forward commit instead of destructive reset
 7. ✅ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, config migration (except migrate_shared)
 8. ✅ **Test coverage** (Stream 5) — sync.rs done, init.rs still needed
 
