@@ -14,7 +14,14 @@ use crossterm::event::{Event, KeyEventKind, poll as crossterm_poll, read as cros
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Alignment, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Clear, Paragraph},
+    Frame, Terminal,
+};
 
 use crate::app::{self, LocalAppConfig, SharedAppConfig};
 use crate::git;
@@ -24,6 +31,11 @@ use crate::tui::main_view::ui::render;
 use crate::tui::suspend::suspend_and_run;
 
 static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
+
+/// Minimum terminal dimensions for the main TUI.
+/// Below these, a "terminal too small" placeholder is shown instead.
+const MIN_WIDTH: u16 = 60;
+const MIN_HEIGHT: u16 = 12;
 
 /// Launch the main daily-use TUI.
 ///
@@ -72,6 +84,25 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result
     Ok(())
 }
 
+/// Render a placeholder when the terminal is too small to display the main UI.
+fn render_too_small(frame: &mut Frame, size: Rect) {
+    let message = format!(
+        "Terminal too small ({}x{}). Minimum: {}x{}.",
+        size.width, size.height, MIN_WIDTH, MIN_HEIGHT
+    );
+    let line = Line::from(vec![
+        Span::styled(
+            message,
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]);
+    let paragraph = Paragraph::new(line).alignment(Alignment::Center);
+    frame.render_widget(Clear, size);
+    frame.render_widget(paragraph, size);
+}
+
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     roost_dir: PathBuf,
@@ -85,9 +116,18 @@ fn run_loop(
             terminal.clear()?;
             state.needs_redraw = false;
         }
-        terminal.draw(|f| {
-            render(&mut state, f);
-        })?;
+
+        let size = terminal.size()?;
+        if size.width < MIN_WIDTH || size.height < MIN_HEIGHT {
+            let area = Rect::new(0, 0, size.width, size.height);
+            terminal.draw(|f| {
+                render_too_small(f, area);
+            })?;
+        } else {
+            terminal.draw(|f| {
+                render(&mut state, f);
+            })?;
+        }
 
         if SHOULD_EXIT.load(Ordering::Relaxed) {
             state.quit = true;
@@ -98,20 +138,26 @@ fn run_loop(
         }
 
         if crossterm_poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key) = crossterm_read()? {
-                if key.kind != KeyEventKind::Press {
-                    continue;
-                }
+            match crossterm_read()? {
+                Event::Key(key) => {
+                    if key.kind != KeyEventKind::Press {
+                        continue;
+                    }
 
-                let actions = handle_event(&mut state, key);
-                for action in actions {
-                    process_action(&mut state, action)?;
-                }
+                    let actions = handle_event(&mut state, key);
+                    for action in actions {
+                        process_action(&mut state, action)?;
+                    }
 
-                // Batched auto-commit after each event iteration.
-                if let Some(msg) = state.pending_auto_commit.take() {
-                    let _ = git::save(&state.roost_dir, &msg);
+                    // Batched auto-commit after each event iteration.
+                    if let Some(msg) = state.pending_auto_commit.take() {
+                        let _ = git::save(&state.roost_dir, &msg);
+                    }
                 }
+                Event::Resize(_, _) => {
+                    // Redraw on resize so the too-small check re-evaluates.
+                }
+                _ => {}
             }
         }
     }
