@@ -249,37 +249,47 @@ impl MillerColumns {
 
 impl Widget for &MillerColumns {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let chunks = Layout::horizontal([
-            Constraint::Percentage(33),
-            Constraint::Percentage(34),
-            Constraint::Percentage(33),
-        ])
-        .split(area);
+        let narrow = area.width < NARROW_WIDTH;
+
+        let chunks = if narrow {
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(area)
+        } else {
+            Layout::horizontal([
+                Constraint::Percentage(33),
+                Constraint::Percentage(34),
+                Constraint::Percentage(33),
+            ])
+            .split(area)
+        };
 
         let current_idx = self.columns.len() - 1;
 
-        // Parent column
-        if current_idx > 0 {
-            let parent = &self.columns[current_idx - 1];
-            let current_path = &self.columns[current_idx].path;
-            let hl_idx = parent
-                .entries
-                .iter()
-                .position(|e| e.path() == *current_path)
-                .unwrap_or(0);
-            let parent_refs: Vec<&DirEntry> = parent.entries.iter().collect();
-            render_entries(
-                buf,
-                chunks[0],
-                &parent_refs,
-                hl_idx,
-                None,
-                Some(current_path.as_path()),
-                &self.selected,
-                false,
-            );
-        } else {
-            render_empty(buf, chunks[0]);
+        // Parent column (only in wide mode)
+        if !narrow {
+            if current_idx > 0 {
+                let parent = &self.columns[current_idx - 1];
+                let current_path = &self.columns[current_idx].path;
+                let hl_idx = parent
+                    .entries
+                    .iter()
+                    .position(|e| e.path() == *current_path)
+                    .unwrap_or(0);
+                let parent_refs: Vec<&DirEntry> = parent.entries.iter().collect();
+                render_entries(
+                    buf,
+                    chunks[0],
+                    &parent_refs,
+                    hl_idx,
+                    None,
+                    Some(current_path.as_path()),
+                    &self.selected,
+                    false,
+                    None,
+                );
+            } else {
+                render_empty(buf, chunks[0]);
+            }
         }
 
         // Current (active) column
@@ -295,17 +305,33 @@ impl Widget for &MillerColumns {
             Some(_) => (self.filtered_cursor, Some(self.filtered_cursor)),
             None => (current.cursor, Some(current.cursor)),
         };
+
+        // In narrow mode, show parent dir name in the current column title
+        let current_title = if narrow && current_idx > 0 {
+            let parent_path = &self.columns[current_idx - 1].path;
+            let parent_name = parent_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            Some(format!(" {} ", parent_name))
+        } else {
+            None
+        };
+
+        let current_chunk = if narrow { chunks[0] } else { chunks[1] };
         render_entries(
             buf,
-            chunks[1],
+            current_chunk,
             &current_refs,
             current_cursor,
             active_cursor,
             None,
             &self.selected,
             true,
+            current_title.as_deref(),
         );
 
+        let preview_chunk = if narrow { chunks[1] } else { chunks[2] };
         let real_cursor = self.real_cursor();
         if let Some(entry) = current.entries.get(real_cursor) {
             if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
@@ -314,25 +340,30 @@ impl Widget for &MillerColumns {
                         let preview_refs: Vec<&DirEntry> = preview.entries.iter().collect();
                         render_entries(
                             buf,
-                            chunks[2],
+                            preview_chunk,
                             &preview_refs,
                             0,
                             None,
                             None,
                             &self.selected,
                             false,
+                            None,
                         )
                     }
-                    Err(_) => render_empty(buf, chunks[2]),
+                    Err(_) => render_empty(buf, preview_chunk),
                 }
             } else {
-                render_file_preview(buf, chunks[2], &entry.path());
+                render_file_preview(buf, preview_chunk, &entry.path());
             }
         } else {
-            render_empty(buf, chunks[2]);
+            render_empty(buf, preview_chunk);
         }
     }
 }
+
+/// Threshold below which the miller columns drop the parent column and show
+/// only two columns (current + preview) with better spacing.
+const NARROW_WIDTH: u16 = 100;
 
 pub(crate) fn render_entries(
     buf: &mut Buffer,
@@ -343,6 +374,7 @@ pub(crate) fn render_entries(
     highlight_path: Option<&Path>,
     selected: &HashSet<PathBuf>,
     is_active_column: bool,
+    title: Option<&str>,
 ) {
     let border_color = if is_active_column {
         Color::Cyan
@@ -350,13 +382,15 @@ pub(crate) fn render_entries(
         Color::DarkGray
     };
 
-    let title = if is_active_column {
-        " Current "
-    } else if highlight_path.is_some() {
-        " Parent "
-    } else {
-        " Preview "
-    };
+    let title = title.unwrap_or_else(|| {
+        if is_active_column {
+            " Current "
+        } else if highlight_path.is_some() {
+            " Parent "
+        } else {
+            " Preview "
+        }
+    });
 
     let block = Block::default()
         .borders(Borders::ALL)
