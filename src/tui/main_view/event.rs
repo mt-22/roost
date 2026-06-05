@@ -748,30 +748,30 @@ fn handle_git_log(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                             .filter(|a| !target_apps.contains(*a))
                             .collect();
 
+                        // Keep dialog compact: show names only when few, else just counts
+                        let format_apps = |apps: &[&&String]| -> String {
+                            if apps.len() <= 8 {
+                                apps.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", ")
+                            } else {
+                                format!("{} total", apps.len())
+                            }
+                        };
                         if !preserved.is_empty() {
                             message.push_str(&format!(
-                                "\n{} app(s) rolled back: {}",
+                                "\n{} to roll back: {}",
                                 preserved.len(),
-                                preserved
-                                    .iter()
-                                    .map(|a| a.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
+                                format_apps(&preserved)
                             ));
                         }
                         if !protected.is_empty() {
                             message.push_str(&format!(
-                                "\n{} app(s) preserved (did not exist at this commit): {}",
+                                "\n{} to preserve (not at this commit): {}",
                                 protected.len(),
-                                protected
-                                    .iter()
-                                    .map(|a| a.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
+                                format_apps(&protected)
                             ));
                         }
                         message.push_str(
-                            "\n\nPreserved apps' configs and files will not be touched.\nA new commit will be created.",
+                            "\n\nPreserved apps' files and configs will not be touched.\nA new commit will be created.",
                         );
                     }
                     Err(e) => {

@@ -68,12 +68,18 @@ pub fn render_confirm_dialog(frame: &mut ratatui::Frame, dialog: &ConfirmDialog)
     let width = 50u16.min(area.width.saturating_sub(4)).max(30);
 
     let text_width = (width as usize).saturating_sub(4);
-    let lines_needed = dialog
+    let lines_needed: usize = dialog
         .message
-        .chars()
-        .collect::<Vec<_>>()
-        .chunks(text_width.max(1))
-        .count()
+        .lines()
+        .map(|line| {
+            let len = line.chars().count();
+            if len == 0 {
+                1
+            } else {
+                (len + text_width - 1) / text_width.max(1)
+            }
+        })
+        .sum::<usize>()
         .max(1);
     let height = (lines_needed as u16 + 5).min(area.height.saturating_sub(4)).max(6);
 
