@@ -273,7 +273,7 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
     let mut backups: Vec<PathBuf> = Vec::new();
     if matches!(preference, ConflictPreference::Remote) {
         // attempt rebase to discover which files conflict
-        if let Err(rebase_err) = run_git(roost_dir, &["rebase", "origin/main"]) {
+        if let Err(_rebase_err) = run_git(roost_dir, &["rebase", "origin/main"]) {
             let conflict_files = get_conflict_files(roost_dir);
             for file in &conflict_files {
                 if let Ok(backup) = backup_conflict_file(roost_dir, file) {
