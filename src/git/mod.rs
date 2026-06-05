@@ -502,13 +502,19 @@ pub fn safe_rollback(
     pre_local: &crate::app::LocalAppConfig,
     profile_name: &str,
 ) -> Result<()> {
+    // Auto-save any uncommitted changes before modifying working tree
+    if is_dirty(roost_dir)? {
+        save(roost_dir, "auto-save before rollback")?;
+    }
+
     // Phase 1: Read target config and classify apps
     let target_shared = match read_shared_at(roost_dir, hash) {
         Ok(c) => c,
-        Err(_) => {
-            run_git(roost_dir, &["checkout", hash, "--", "."])?;
+        Err(e) => {
             return Err(color_eyre::eyre::eyre!(
-                "target commit has no roost.toml, aborting rollback"
+                "cannot read roost.toml at {}: {}",
+                &hash[..hash.len().min(7)],
+                e
             ));
         }
     };
@@ -527,7 +533,9 @@ pub fn safe_rollback(
         } else {
             format!("{}/misc/{}", profile_name, app_name)
         };
-        let _ = run_git(roost_dir, &["checkout", hash, "--", &rel_path]);
+        if let Err(e) = run_git(roost_dir, &["checkout", hash, "--", &rel_path]) {
+            eprintln!("note: could not checkout {}: {}", rel_path, e);
+        }
     }
 
     run_git(roost_dir, &["checkout", hash, "--", "roost.toml"])?;
@@ -563,7 +571,10 @@ pub fn safe_rollback(
     }
 
     crate::app::save_shared(&shared_path, &shared)?;
-    let _ = crate::linker::ensure_links(&shared, &mut local, roost_dir);
+    let _ = crate::gitignore::regenerate(roost_dir, &shared.ignored, &shared.apps);
+    if let Err(e) = crate::linker::ensure_links(&shared, &mut local, roost_dir) {
+        eprintln!("warning: ensure_links encountered errors: {}", e);
+    }
     crate::app::save_local(&local_path, &local)?;
 
     // Phase 4: Commit
