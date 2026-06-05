@@ -306,17 +306,18 @@ impl Widget for &MillerColumns {
             None => (current.cursor, Some(current.cursor)),
         };
 
-        // In narrow mode, show parent dir name in the current column title
-        let current_title = if narrow && current_idx > 0 {
-            let parent_path = &self.columns[current_idx - 1].path;
-            let parent_name = parent_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            Some(format!(" {} ", parent_name))
+        // Build current column title: "Current: [dir_name]" truncated to ~20 chars
+        let current_dir_name = current
+            .path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let truncated_name = if current_dir_name.chars().count() > 20 {
+            current_dir_name.chars().take(20).collect::<String>() + "…"
         } else {
-            None
+            current_dir_name.to_string()
         };
+        let current_title = format!(" Current: {} ", truncated_name);
 
         let current_chunk = if narrow { chunks[0] } else { chunks[1] };
         render_entries(
@@ -328,7 +329,7 @@ impl Widget for &MillerColumns {
             None,
             &self.selected,
             true,
-            current_title.as_deref(),
+            Some(&current_title),
         );
 
         let preview_chunk = if narrow { chunks[1] } else { chunks[2] };
