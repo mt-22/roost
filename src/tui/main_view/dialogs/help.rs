@@ -6,7 +6,10 @@ pub struct HelpState {
 
 impl HelpState {
     pub fn new() -> Self {
-        Self { cursor: 0, scroll: 0 }
+        Self {
+            cursor: 0,
+            scroll: 0,
+        }
     }
 
     pub fn move_up(&mut self) {
@@ -42,24 +45,90 @@ pub struct KeybindEntry {
 }
 
 pub const KEYBINDS: &[KeybindEntry] = &[
-    KeybindEntry { key: "j / k", description: "Navigate up / down" },
-    KeybindEntry { key: "Tab", description: "Switch focus between panels" },
-    KeybindEntry { key: "h / l", description: "Navigate miller columns (files panel)" },
-    KeybindEntry { key: "/", description: "Fuzzy search apps or files" },
-    KeybindEntry { key: "?", description: "Show this help dialog" },
-    KeybindEntry { key: "q / Esc", description: "Quit / close dialog" },
-    KeybindEntry { key: "o", description: "Open primary config for selected app" },
-    KeybindEntry { key: "x", description: "Remove app from roost" },
-    KeybindEntry { key: "f", description: "Import app from another profile" },
-    KeybindEntry { key: "m", description: "Copy app to another profile" },
-    KeybindEntry { key: "e / Enter", description: "Edit file in $EDITOR" },
-    KeybindEntry { key: "p", description: "Set file as primary config" },
-    KeybindEntry { key: "s", description: "Sync (commit + pull + push)" },
-    KeybindEntry { key: "a", description: "Add new app to roost" },
-    KeybindEntry { key: "i", description: "Manage ignore patterns" },
-    KeybindEntry { key: "P", description: "Switch / create / delete profiles" },
-    KeybindEntry { key: "g", description: "View git log" },
-    KeybindEntry { key: "r", description: "Rollback to selected commit (destructive)" },
-    KeybindEntry { key: "d", description: "Show git diff" },
-    KeybindEntry { key: "u", description: "Undo last commit" },
+    // Navigation
+    KeybindEntry {
+        key: "j / k",
+        description: "Navigate up / down",
+    },
+    KeybindEntry {
+        key: "h / l",
+        description: "Navigate miller columns (files panel)",
+    },
+    KeybindEntry {
+        key: "Tab",
+        description: "Switch focus between panels",
+    },
+    KeybindEntry {
+        key: "/",
+        description: "Fuzzy search apps or files",
+    },
+    // Apps panel
+    KeybindEntry {
+        key: "o",
+        description: "Open primary config for selected app",
+    },
+    KeybindEntry {
+        key: "x",
+        description: "Remove app from roost",
+    },
+    KeybindEntry {
+        key: "f",
+        description: "Import app from another profile",
+    },
+    KeybindEntry {
+        key: "m",
+        description: "Copy app to another profile",
+    },
+    // Files panel
+    KeybindEntry {
+        key: "e / Enter",
+        description: "Edit file in $EDITOR",
+    },
+    KeybindEntry {
+        key: "p",
+        description: "Set file as primary config",
+    },
+    // Management
+    KeybindEntry {
+        key: "a",
+        description: "Add new app to roost",
+    },
+    KeybindEntry {
+        key: "i",
+        description: "Manage ignore patterns",
+    },
+    KeybindEntry {
+        key: "P",
+        description: "Switch / create / delete profiles",
+    },
+    // Git
+    KeybindEntry {
+        key: "s",
+        description: "Sync (commit + pull + push)",
+    },
+    KeybindEntry {
+        key: "g",
+        description: "View git log",
+    },
+    KeybindEntry {
+        key: "d",
+        description: "Show git diff",
+    },
+    KeybindEntry {
+        key: "u",
+        description: "Undo last commit",
+    },
+    KeybindEntry {
+        key: "r",
+        description: "Rollback to selected commit (destructive)",
+    },
+    // System
+    KeybindEntry {
+        key: "?",
+        description: "Show this help dialog",
+    },
+    KeybindEntry {
+        key: "q / Esc",
+        description: "Quit / close dialog",
+    },
 ];
