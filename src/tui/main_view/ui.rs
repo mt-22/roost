@@ -242,6 +242,76 @@ fn render_files_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) 
 // Status bar
 // ------------------------------------------------------------------
 
+/// Build the normal hint spans for the status bar.
+fn normal_hint_spans(state: &MainViewState) -> Vec<Span<'static>> {
+    let base = vec![
+        Span::styled("?", key_style()),
+        Span::styled(" help  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("j", key_style()),
+        Span::styled("/", Style::default().fg(Color::DarkGray)),
+        Span::styled("k", key_style()),
+        Span::styled(" nav  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("h", key_style()),
+        Span::styled("/", Style::default().fg(Color::DarkGray)),
+        Span::styled("l", key_style()),
+        Span::styled(" miller  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("Tab", key_style()),
+        Span::styled(" focus  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("/", key_style()),
+        Span::styled(" search  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("q", key_style()),
+        Span::styled(" quit", Style::default().fg(Color::DarkGray)),
+    ];
+
+    let focused = match state.focus {
+        Focus::AppsPanel => vec![
+            Span::styled("  ·  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("o", key_style()),
+            Span::styled(" open  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("x", key_style()),
+            Span::styled(" remove  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("f", key_style()),
+            Span::styled(" link-from  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("m", key_style()),
+            Span::styled(" paste", Style::default().fg(Color::DarkGray)),
+        ],
+        Focus::FilesPanel => vec![
+            Span::styled("  ·  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("e", key_style()),
+            Span::styled("/", Style::default().fg(Color::DarkGray)),
+            Span::styled("Enter", key_style()),
+            Span::styled(" edit  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("p", key_style()),
+            Span::styled(" set-primary", Style::default().fg(Color::DarkGray)),
+        ],
+    };
+
+    let actions = vec![
+        Span::styled("  ·  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("s", key_style()),
+        Span::styled(" save ", Style::default().fg(Color::DarkGray)),
+        Span::styled("S", key_style()),
+        Span::styled(" sync ", Style::default().fg(Color::DarkGray)),
+        Span::styled("a", key_style()),
+        Span::styled(" add  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("i", key_style()),
+        Span::styled(" ignore  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("P", key_style()),
+        Span::styled(" profile  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("g", key_style()),
+        Span::styled(" log  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("d", key_style()),
+        Span::styled(" diff  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("u", key_style()),
+        Span::styled(" undo", Style::default().fg(Color::DarkGray)),
+    ];
+
+    let mut all = base;
+    all.extend(focused);
+    all.extend(actions);
+    all
+}
+
 fn render_status_bar(state: &MainViewState, frame: &mut Frame, area: Rect) {
     let parts = if let Some(ref msg) = state.status_message {
         vec![Span::styled(
@@ -249,92 +319,61 @@ fn render_status_bar(state: &MainViewState, frame: &mut Frame, area: Rect) {
             Style::default().fg(Color::Yellow),
         )]
     } else if let Some(ref search) = state.search {
-        let query = search.engine.query();
-        let match_count = search.engine.match_count();
-        let hint = if query.is_empty() {
-            "all items".to_string()
-        } else if match_count == 0 {
-            "no matches".to_string()
-        } else if match_count == 1 {
-            "1 match".to_string()
+        if search.visible {
+            // Overlay is visible
+            let query = search.engine.query();
+            if query.is_empty() {
+                vec![
+                    Span::styled("Fuzzy Search (/) ", Style::default().fg(Color::Yellow)),
+                    Span::styled("[type to filter]", Style::default().fg(Color::White)),
+                    Span::styled("  Esc close", Style::default().fg(Color::DarkGray)),
+                ]
+            } else {
+                let match_count = search.engine.match_count();
+                let hint = if match_count == 0 {
+                    "no matches".to_string()
+                } else if match_count == 1 {
+                    "1 match".to_string()
+                } else {
+                    format!("{} matches", match_count)
+                };
+                vec![
+                    Span::styled("Fuzzy Search (/) ", Style::default().fg(Color::Yellow)),
+                    Span::styled(
+                        format!("[filter: \"{}\" | {}]", query, hint),
+                        Style::default().fg(Color::White),
+                    ),
+                    Span::styled(
+                        "  ↑/↓ nav  Enter/Esc close",
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]
+            }
+        } else if !search.engine.query().is_empty() {
+            // Overlay hidden but filter still active
+            let query = search.engine.query();
+            let match_count = search.engine.match_count();
+            let hint = if match_count == 0 {
+                "no matches".to_string()
+            } else if match_count == 1 {
+                "1 match".to_string()
+            } else {
+                format!("{} matches", match_count)
+            };
+            vec![
+                Span::styled("Fuzzy Search (/) ", Style::default().fg(Color::Yellow)),
+                Span::styled(
+                    format!("[filter: \"{}\" | {}]", query, hint),
+                    Style::default().fg(Color::White),
+                ),
+                Span::styled("  / edit filter", Style::default().fg(Color::DarkGray)),
+            ]
         } else {
-            format!("{} matches", match_count)
-        };
-        vec![
-            Span::styled("Fuzzy Search (/) ", Style::default().fg(Color::Yellow)),
-            Span::styled(
-                format!("[filter: \"{}\" | {}]", query, hint),
-                Style::default().fg(Color::White),
-            ),
-            Span::styled("  / edit filter", Style::default().fg(Color::DarkGray)),
-        ]
+            // Search exists but overlay hidden and query empty → normal hints
+            normal_hint_spans(state)
+        }
     } else {
-        let base = vec![
-            Span::styled("?", key_style()),
-            Span::styled(" help  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("j", key_style()),
-            Span::styled("/", Style::default().fg(Color::DarkGray)),
-            Span::styled("k", key_style()),
-            Span::styled(" nav  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("h", key_style()),
-            Span::styled("/", Style::default().fg(Color::DarkGray)),
-            Span::styled("l", key_style()),
-            Span::styled(" miller  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Tab", key_style()),
-            Span::styled(" focus  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("/", key_style()),
-            Span::styled(" search  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("q", key_style()),
-            Span::styled(" quit", Style::default().fg(Color::DarkGray)),
-        ];
-
-        let focused = match state.focus {
-            Focus::AppsPanel => vec![
-                Span::styled("  ·  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("o", key_style()),
-                Span::styled(" open  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("x", key_style()),
-                Span::styled(" remove  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("f", key_style()),
-                Span::styled(" link-from  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("m", key_style()),
-                Span::styled(" paste", Style::default().fg(Color::DarkGray)),
-            ],
-            Focus::FilesPanel => vec![
-                Span::styled("  ·  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("e", key_style()),
-                Span::styled("/", Style::default().fg(Color::DarkGray)),
-                Span::styled("Enter", key_style()),
-                Span::styled(" edit  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("p", key_style()),
-                Span::styled(" set-primary", Style::default().fg(Color::DarkGray)),
-            ],
-        };
-
-        let actions = vec![
-            Span::styled("  ·  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("s", key_style()),
-            Span::styled(" save ", Style::default().fg(Color::DarkGray)),
-            Span::styled("S", key_style()),
-            Span::styled(" sync ", Style::default().fg(Color::DarkGray)),
-            Span::styled("a", key_style()),
-            Span::styled(" add  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("i", key_style()),
-            Span::styled(" ignore  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("P", key_style()),
-            Span::styled(" profile  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("g", key_style()),
-            Span::styled(" log  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("d", key_style()),
-            Span::styled(" diff  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("u", key_style()),
-            Span::styled(" undo", Style::default().fg(Color::DarkGray)),
-        ];
-
-        let mut all = base;
-        all.extend(focused);
-        all.extend(actions);
-        all
+        normal_hint_spans(state)
     };
 
     let line = Line::from(parts);
