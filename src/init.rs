@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use color_eyre::Result;
-use dialoguer::{Confirm, Input, MultiSelect, console::style, theme::ColorfulTheme};
+use dialoguer::{Confirm, Input, MultiSelect, Select, console::style, theme::ColorfulTheme};
 
 use crate::{app, app_selector, data, git, linker, logo, os_detect, scanner};
 
@@ -47,6 +48,15 @@ pub fn run_wizard() -> Result<()> {
             println!("{}", style("Aborting.").yellow());
             return Ok(());
         }
+    }
+
+    // Reconstruct local state when roost.toml exists but local.toml is missing
+    if existing_shared && !existing_local {
+        println!(
+            "{}",
+            style("Existing shared config found. Reconstructing local state...").cyan().bold()
+        );
+        return reconstruct_local(&roost_dir, shared_path.clone(), local_path.clone());
     }
 
     let theme = roost_theme();
@@ -246,4 +256,169 @@ pub fn run_wizard() -> Result<()> {
     );
 
     Ok(())
+}
+
+/// Reconstruct local.toml from an existing roost.toml (e.g. after a fresh clone).
+fn reconstruct_local(roost_dir: &Path, shared_path: std::path::PathBuf, local_path: std::path::PathBuf) -> Result<()> {
+    let theme = roost_theme();
+    let mut config = app::load_shared(&shared_path)?;
+
+    let remote_url: String = Input::with_theme(&theme)
+        .with_prompt("Git remote URL (leave empty to keep existing)")
+        .allow_empty(true)
+        .interact()?;
+    let remote_url = if remote_url.trim().is_empty() {
+        config.remote.clone()
+    } else {
+        Some(remote_url.trim().to_string())
+    };
+    if remote_url.is_some() {
+        config.remote = remote_url.clone();
+    }
+
+    // Let user pick the active profile from existing profiles
+    let profile_name = if config.profiles.is_empty() {
+        let hostname = get_hostname();
+        println!(
+            "{}",
+            style("No profiles found in shared config. Creating new profile.").yellow()
+        );
+        config.profiles.insert(
+            hostname.clone(),
+            app::Profile {
+                apps: BTreeSet::new(),
+                app_sources: BTreeMap::new(),
+            },
+        );
+        hostname
+    } else if config.profiles.len() == 1 {
+        config.profiles.keys().next().unwrap().clone()
+    } else {
+        let profile_names: Vec<String> = config.profiles.keys().cloned().collect();
+        let idx = Select::with_theme(&theme)
+            .with_prompt("Choose active profile")
+            .items(&profile_names)
+            .default(0)
+            .interact()?;
+        profile_names[idx].clone()
+    };
+
+    let home = dirs::home_dir().expect("no home directory");
+    let mut local = app::LocalAppConfig {
+        active_profile: profile_name.clone(),
+        os_info: os_detect::detect(),
+        link_paths: BTreeMap::new(),
+    };
+
+    // Discover original paths for each app in the active profile
+    let pdir = app::profile_dir(roost_dir, &profile_name);
+    if let Some(profile) = config.profiles.get(&profile_name) {
+        if !profile.apps.is_empty() {
+            println!("{}", style("Discovering original paths for managed apps...").cyan());
+        }
+        for app_name in &profile.apps {
+            let discovered = discover_app_origin(app_name, &pdir, roost_dir, &config, &home);
+            if let Some(path) = discovered {
+                println!(
+                    "  {} {} -> {}",
+                    style("✓").green().bold(),
+                    style(app_name).cyan(),
+                    style(path.display()).dim()
+                );
+                local.link_paths.insert(app_name.clone(), path);
+            } else {
+                println!(
+                    "  {} {} — {}",
+                    style("?").yellow().bold(),
+                    style(app_name).cyan(),
+                    style("no path discovered, skipped").dim()
+                );
+            }
+        }
+    }
+
+    app::save_local(&local_path, &local)?;
+    println!("{}", style("Local config written.").green());
+
+    let actions = linker::ensure_links(&config, &local, roost_dir)?;
+    if !actions.is_empty() {
+        println!("{}", style("Link actions:").cyan());
+        for action in &actions {
+            println!("  {}", style(action).dim());
+        }
+    }
+
+    if !roost_dir.join(".git").exists() {
+        git::init(roost_dir)?;
+        if let Some(ref url) = remote_url {
+            git::set_remote(roost_dir, url)?;
+        }
+        git::save(roost_dir, "init: roost initialized")?;
+        println!("{}", style("Git repository initialized.").green());
+    } else if let Some(ref url) = remote_url {
+        // Ensure remote is set even if git already exists
+        if git::get_remote(roost_dir)?.is_none() {
+            git::set_remote(roost_dir, url)?;
+        }
+    }
+
+    println!("{}", style(logo::ROOST_LOGO).cyan());
+    let app_count = config.apps.len();
+    println!(
+        "{} Profile: {}, {} apps managed.",
+        style("Roost initialized!").cyan().bold(),
+        style(&profile_name).white().bold(),
+        style(app_count).green().bold()
+    );
+
+    Ok(())
+}
+
+/// Attempt to discover the original path for an already-managed app.
+/// Checks for existing symlinks pointing into the roost profile dir first,
+/// then falls back to common default locations.
+fn discover_app_origin(
+    app_name: &str,
+    pdir: &Path,
+    _roost_dir: &Path,
+    config: &app::SharedAppConfig,
+    home: &Path,
+) -> Option<std::path::PathBuf> {
+    // 1. Check if a symlink already exists at a likely path pointing into roost
+    let candidates = vec![
+        home.join(".config").join(app_name),
+        home.join(format!(".{}", app_name)),
+        home.join(app_name),
+        home.join("Library").join("Application Support").join(app_name),
+    ];
+
+    for candidate in &candidates {
+        if candidate.is_symlink() {
+            if let Ok(target) = std::fs::read_link(candidate) {
+                let expected = if let Some(app) = config.apps.get(app_name) {
+                    linker::app_dest(pdir, app_name, app.is_dir)
+                } else {
+                    pdir.join(app_name)
+                };
+                if target == expected {
+                    return Some(candidate.clone());
+                }
+            }
+        }
+    }
+
+    // 2. Check if a real file/dir exists at a likely path (user hasn't set up symlinks yet)
+    // Only auto-discover if it matches the app's expected type
+    for candidate in &candidates {
+        if candidate.exists() && !candidate.is_symlink() {
+            if let Some(app) = config.apps.get(app_name) {
+                let is_dir = candidate.is_dir();
+                if is_dir == app.is_dir {
+                    return Some(candidate.clone());
+                }
+            }
+        }
+    }
+
+    None
 }
