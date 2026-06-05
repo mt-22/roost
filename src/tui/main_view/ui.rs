@@ -140,7 +140,7 @@ fn render_apps_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
                 Span::styled(cursor_prefix, Style::default().fg(Color::Yellow)),
                 Span::styled(marker, Style::default().fg(Color::Cyan)),
                 Span::styled(
-                    truncate_str(name, inner.width as usize - 6),
+                    truncate_str(name, (inner.width as usize).saturating_sub(6)),
                     name_style,
                 ),
             ]);
@@ -200,6 +200,8 @@ fn render_status_bar(state: &MainViewState, frame: &mut Frame, area: Rect) {
         vec![Span::styled(msg.clone(), Style::default().fg(Color::Yellow))]
     } else {
         let base = vec![
+            Span::styled("?", key_style()),
+            Span::styled(" help  ", Style::default().fg(Color::DarkGray)),
             Span::styled("j", key_style()),
             Span::styled("/", Style::default().fg(Color::DarkGray)),
             Span::styled("k", key_style()),
@@ -212,8 +214,6 @@ fn render_status_bar(state: &MainViewState, frame: &mut Frame, area: Rect) {
             Span::styled(" miller  ", Style::default().fg(Color::DarkGray)),
             Span::styled("/", key_style()),
             Span::styled(" search  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("?", key_style()),
-            Span::styled(" help  ", Style::default().fg(Color::DarkGray)),
             Span::styled("q", key_style()),
             Span::styled(" quit", Style::default().fg(Color::DarkGray)),
         ];
@@ -378,7 +378,7 @@ fn render_help_dialog(frame: &mut Frame, help: &crate::tui::main_view::dialogs::
                 ),
                 Span::styled("  ", Style::default()),
                 Span::styled(
-                    truncate_str(entry.description, inner.width as usize - 14),
+                    truncate_str(entry.description, (inner.width as usize).saturating_sub(14)),
                     Style::default().fg(Color::White),
                 ),
             ]);
@@ -492,7 +492,7 @@ fn render_profile_dialog(
                     let line = Line::from(vec![
                         Span::styled(marker, Style::default().fg(Color::Green)),
                         Span::styled(
-                            truncate_str(name, content_area.width as usize - 4),
+                            truncate_str(name, (content_area.width as usize).saturating_sub(4)),
                             Style::default().fg(Color::White),
                         ),
                     ]);
@@ -613,7 +613,7 @@ fn render_ignore_dialog(
                     let is_cursor = i == ignore.cursor;
                     let line = Line::from(vec![
                         Span::styled(
-                            truncate_str(pat, inner.width as usize - 4),
+                            truncate_str(pat, (inner.width as usize).saturating_sub(4)),
                             Style::default().fg(Color::White),
                         ),
                     ]);
@@ -682,7 +682,7 @@ fn render_git_log_dialog(frame: &mut Frame, git_log: &crate::tui::main_view::dia
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    truncate_str(&commit.message, content_area.width as usize - 10),
+                    truncate_str(&commit.message, (content_area.width as usize).saturating_sub(10)),
                     Style::default().fg(Color::White),
                 ),
             ]);
@@ -822,7 +822,7 @@ fn render_app_link_dialog(
                     let line = Line::from(vec![
                         Span::styled(marker, Style::default().fg(Color::Green)),
                         Span::styled(
-                            truncate_str(name, inner.width as usize - 4),
+                            truncate_str(name, (inner.width as usize).saturating_sub(4)),
                             Style::default().fg(Color::White),
                         ),
                     ]);
@@ -863,7 +863,7 @@ fn render_app_link_dialog(
                         let is_cursor = i == app_link.cursor;
                         let line = Line::from(vec![
                             Span::styled(
-                                truncate_str(app, inner.width as usize - 4),
+                                truncate_str(app, (inner.width as usize).saturating_sub(4)),
                                 Style::default().fg(Color::White),
                             ),
                         ]);
