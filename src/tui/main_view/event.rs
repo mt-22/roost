@@ -770,9 +770,11 @@ fn handle_git_log(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                                 format_apps(&protected)
                             ));
                         }
-                        message.push_str(
-                            "\n\nPreserved apps' files and configs will not be touched.\nA new commit will be created.",
-                        );
+                        message.push_str("\n");
+                        if !protected.is_empty() {
+                            message.push_str("Preserved apps' files and configs will not be touched.\n");
+                        }
+                        message.push_str("A new commit will be created.");
                     }
                     Err(e) => {
                         state.git_log_dialog = None;
