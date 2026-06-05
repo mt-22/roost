@@ -65,7 +65,7 @@ pub const KEYBINDS: &[KeybindEntry] = &[
     // Apps panel
     KeybindEntry {
         key: "o",
-        description: "Open primary config for selected app",
+        description: "Open primary config for selected app (apps panel)",
     },
     KeybindEntry {
         key: "x",
@@ -82,11 +82,11 @@ pub const KEYBINDS: &[KeybindEntry] = &[
     // Files panel
     KeybindEntry {
         key: "e / Enter",
-        description: "Edit file in $EDITOR",
+        description: "Edit file in $EDITOR (files panel)",
     },
     KeybindEntry {
         key: "p",
-        description: "Set file as primary config",
+        description: "Set file as primary config (files panel)",
     },
     // Management
     KeybindEntry {
@@ -104,7 +104,11 @@ pub const KEYBINDS: &[KeybindEntry] = &[
     // Git
     KeybindEntry {
         key: "s",
-        description: "Sync (commit + pull + push)",
+        description: "Save changes (git commit)",
+    },
+    KeybindEntry {
+        key: "S",
+        description: "Sync with remote (pull + push)",
     },
     KeybindEntry {
         key: "g",
@@ -120,7 +124,7 @@ pub const KEYBINDS: &[KeybindEntry] = &[
     },
     KeybindEntry {
         key: "r",
-        description: "Rollback to selected commit (destructive)",
+        description: "Rollback to selected commit (git log dialog only)",
     },
     // System
     KeybindEntry {

@@ -298,9 +298,15 @@ fn apply_search_selection(state: &mut MainViewState) -> Vec<Action> {
 // ------------------------------------------------------------------
 
 fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
-    // Any keypress at the base layer clears stale status messages.
-    state.status_message = None;
-
+    // Only clear stale status messages on action/navigation keys so
+    // the user has time to read error toasts.  Leave messages intact
+    // when opening overlays (? /) or quitting (q / Esc).
+    if !matches!(
+        key.code,
+        KeyCode::Char('?') | KeyCode::Char('/') | KeyCode::Char('q') | KeyCode::Esc
+    ) {
+        state.status_message = None;
+    }
     match key.code {
         // Navigation
         KeyCode::Char('j') => {
@@ -517,7 +523,8 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             let roost_dir = state.roost_dir.clone();
             match crate::git::log(&roost_dir, 1) {
                 Ok(commits) if !commits.is_empty() => {
-                    let msg = format!("Undo last commit?\n{}  {}", &commits[0].hash[..7], commits[0].message);
+                    let short_hash = &commits[0].hash[..commits[0].hash.len().min(7)];
+                    let msg = format!("Undo last commit?\n{}  {}", short_hash, commits[0].message);
                     state.undo_dialog = Some(crate::tui::main_view::dialogs::UndoState::new(msg));
                 }
                 _ => {
@@ -755,7 +762,8 @@ fn handle_git_log(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
         }
         KeyCode::Char('r') => {
             if let Some(hash) = git_log.selected_hash().map(|s| s.to_string()) {
-                let mut message = format!("Rollback to {}?\n", &hash[..7]);
+                let short_hash = &hash[..hash.len().min(7)];
+                let mut message = format!("Rollback to {}?\n", short_hash);
 
                 match crate::git::read_shared_at(&state.roost_dir, &hash) {
                     Ok(target_shared) => {
@@ -803,9 +811,10 @@ fn handle_git_log(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                     }
                     Err(e) => {
                         state.git_log_dialog = None;
+                        let short_hash = &hash[..hash.len().min(7)];
                         return vec![Action::SetStatus(format!(
                             "Cannot rollback: could not read roost.toml at {} ({})",
-                            &hash[..7],
+                            short_hash,
                             e
                         ))];
                     }

@@ -327,15 +327,39 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             }
         }
         Action::SwitchProfile(name) => {
-            state.local.active_profile = name;
+            if !state.shared.profiles.contains_key(&name) {
+                state.status_message = Some(format!("Profile '{}' does not exist", name));
+                return Ok(());
+            }
+            let old_profile = state.local.active_profile.clone();
+            if old_profile == name {
+                return Ok(());
+            }
+
+            // Borrow shared immutably and local mutably for switch_profile
+            if let Err(e) = linker::switch_profile(
+                &old_profile,
+                &name,
+                &state.shared,
+                &mut state.local,
+                &state.roost_dir,
+            ) {
+                state.status_message = Some(format!("Error switching profile: {}", e));
+                return Ok(());
+            }
+
+            if let Err(e) = app::save_local(
+                &app::local_config_path(&state.roost_dir),
+                &state.local,
+            ) {
+                state.status_message = Some(format!("Error saving local config: {}", e));
+                state.local.active_profile = old_profile;
+                return Ok(());
+            }
+
             state.app_cursor = 0;
             state.sync_miller_to_selected_app();
-            let local_path = app::local_config_path(&state.roost_dir);
-            let _ = app::save_local(&local_path, &state.local);
-            state.status_message = Some(format!(
-                "Switched to profile '{}'",
-                state.local.active_profile
-            ));
+            state.status_message = Some(format!("Switched to profile '{}'", name));
         }
         Action::SetPrimary { app, path } => {
             if let Some(app_entry) = state.shared.apps.get_mut(&app) {
