@@ -174,7 +174,8 @@ fn handle_search(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             if let Some(ref mut search) = state.search {
                 search.engine.backspace();
                 if search.engine.query().is_empty() {
-                    state.search = None;
+                    // Clear filter but keep overlay visible (like app_selector.rs)
+                    search.engine.clear();
                     state.miller.clear_filter();
                 } else {
                     apply_search_filter(state);

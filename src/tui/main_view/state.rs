@@ -269,8 +269,13 @@ impl MainViewState {
     }
 
     /// Whether a search filter is currently active (overlay may be hidden).
+    /// A search with an empty query is considered inactive, matching
+    /// app_selector.rs behaviour.
     pub fn is_search_active(&self) -> bool {
-        self.search.is_some()
+        self.search
+            .as_ref()
+            .map(|s| !s.engine.query().is_empty())
+            .unwrap_or(false)
     }
 
     /// Mutable access to the active search engine, if any.
