@@ -176,9 +176,50 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
         Action::Quit => state.quit = true,
         Action::SetStatus(msg) => state.status_message = Some(msg),
         Action::AutoCommit(msg) => state.pending_auto_commit = Some(msg),
-        Action::RemoveApp(app) => {
-            // TODO: full remove logic in Stream 3/4
-            state.status_message = Some(format!("Removed '{}'", app));
+        Action::RemoveApp(app_name) => {
+            let Some(app) = state.shared.apps.get(&app_name) else {
+                state.status_message = Some(format!("App '{}' not found", app_name));
+                return Ok(());
+            };
+            let Some(origin) = state.local.link_paths.get(&app_name) else {
+                state.status_message = Some(format!("No link path for '{}'", app_name));
+                return Ok(());
+            };
+            let profile_name = state.local.active_profile.clone();
+            let pdir = app::profile_dir(&state.roost_dir, &profile_name);
+
+            if let Err(e) = linker::unlink(origin, &pdir, &app_name, app.is_dir) {
+                state.status_message = Some(format!("Error removing {}: {}", app_name, e));
+                return Ok(());
+            }
+
+            state.shared.apps.remove(&app_name);
+            if let Some(profile) = state.shared.profiles.get_mut(&profile_name) {
+                profile.apps.remove(&app_name);
+            }
+            state.local.link_paths.remove(&app_name);
+
+            if let Err(e) = app::save_shared(
+                &app::shared_config_path(&state.roost_dir),
+                &state.shared,
+            ) {
+                state.status_message = Some(format!("Error saving config: {}", e));
+                return Ok(());
+            }
+            if let Err(e) = app::save_local(
+                &app::local_config_path(&state.roost_dir),
+                &state.local,
+            ) {
+                state.status_message = Some(format!("Error saving local config: {}", e));
+                return Ok(());
+            }
+
+            state.pending_auto_commit = Some(format!("remove: {}", app_name));
+            state.status_message = Some(format!("Removed '{}'", app_name));
+            state.app_cursor = state
+                .app_cursor
+                .min(state.app_count().saturating_sub(1));
+            state.sync_miller_to_selected_app();
         }
         Action::OpenEditor(path) => {
             let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
