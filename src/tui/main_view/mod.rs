@@ -169,9 +169,7 @@ fn run_loop(
                         }
                     }
                 }
-                Event::Resize(_, _) => {
-                    // Redraw on resize so the too-small check re-evaluates.
-                }
+                Event::Resize(_, _) => {}
                 _ => {}
             }
         }
@@ -182,13 +180,7 @@ fn run_loop(
 fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
     match action {
         Action::Quit => state.quit = true,
-        Action::SetStatus(msg) => {
-            if msg.starts_with("rollback_pending:") {
-                // Marker from git log dialog; the confirm dialog handler will pick this up
-            } else {
-                state.status_message = Some(msg);
-            }
-        }
+        Action::SetStatus(msg) => state.status_message = Some(msg),
         Action::AutoCommit(msg) => state.pending_auto_commit = Some(msg),
         Action::RemoveApp(app) => {
             // TODO: full remove logic in Stream 3/4
@@ -509,30 +501,63 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
         }
         Action::Undo => {
             let roost_dir = state.roost_dir.clone();
+            let shared = state.shared.clone();
+            let local = state.local.clone();
+            let profile_name = state.local.active_profile.clone();
+
             let result = suspend_and_run(|| {
-                crate::git::undo(&roost_dir, 1)?;
-                Ok(())
+                crate::git::safe_rollback(&roost_dir, "HEAD~1", &shared, &local, &profile_name)
             });
+
             state.needs_redraw = true;
             match result {
-                Ok(()) => state.status_message = Some("Undone last commit".to_string()),
-                Err(e) => state.status_message = Some(format!("Undo failed: {}", e)),
+                Ok(()) => {
+                    state.status_message = Some("Undone last commit with app preservation".to_string());
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Undo failed: {}", e));
+                }
+            }
+
+            let shared_path = crate::app::shared_config_path(&state.roost_dir);
+            let local_path = crate::app::local_config_path(&state.roost_dir);
+            if let (Ok(shared), Ok(local)) = (
+                crate::app::load_shared(&shared_path),
+                crate::app::load_local(&local_path),
+            ) {
+                state.reload_configs(shared, local);
             }
         }
         Action::Rollback(hash) => {
-            eprintln!("[DEBUG] Rollback action started for hash: {}", hash);
             let roost_dir = state.roost_dir.clone();
+            let shared = state.shared.clone();
+            let local = state.local.clone();
+            let profile_name = state.local.active_profile.clone();
+
             let result = suspend_and_run(|| {
-                eprintln!("[DEBUG] Inside suspend_and_run, calling git::rollback");
-                let res = crate::git::rollback(&roost_dir, &hash);
-                eprintln!("[DEBUG] git::rollback returned: {:?}", res);
-                res
+                crate::git::safe_rollback(&roost_dir, &hash, &shared, &local, &profile_name)
             });
-            eprintln!("[DEBUG] suspend_and_run returned: {:?}", result);
+
             state.needs_redraw = true;
             match result {
-                Ok(()) => state.status_message = Some(format!("Rolled back to {}", &hash[..hash.len().min(7)])),
-                Err(e) => state.status_message = Some(format!("Rollback failed: {}", e)),
+                Ok(()) => {
+                    state.status_message = Some(format!(
+                        "Rolled back to {} with app preservation",
+                        &hash[..hash.len().min(7)]
+                    ));
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Rollback failed: {}", e));
+                }
+            }
+
+            let shared_path = crate::app::shared_config_path(&state.roost_dir);
+            let local_path = crate::app::local_config_path(&state.roost_dir);
+            if let (Ok(shared), Ok(local)) = (
+                crate::app::load_shared(&shared_path),
+                crate::app::load_local(&local_path),
+            ) {
+                state.reload_configs(shared, local);
             }
         }
     }
