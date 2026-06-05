@@ -300,11 +300,13 @@ fn cmd_remote(url: Option<String>) -> Result<()> {
 }
 
 fn cmd_undo(n: Option<usize>) -> Result<()> {
-    let (_, _, roost_dir) = load_configs()?;
+    let (shared, local, roost_dir) = load_configs()?;
     let count = n.unwrap_or(1);
-    git::undo(&roost_dir, count)?;
+    let profile_name = local.active_profile.clone();
+    let hash = format!("HEAD~{}", count);
+    git::safe_rollback(&roost_dir, &hash, &shared, &local, &profile_name)?;
     println!(
-        "{} {} commit(s).",
+        "{} {} commit(s) with app preservation.",
         style("Undid").green(),
         style(count).white().bold()
     );
@@ -312,8 +314,9 @@ fn cmd_undo(n: Option<usize>) -> Result<()> {
 }
 
 fn cmd_rollback(hash: &str) -> Result<()> {
-    let (_, _, roost_dir) = load_configs()?;
-    git::rollback(&roost_dir, hash)?;
+    let (shared, local, roost_dir) = load_configs()?;
+    let profile_name = local.active_profile.clone();
+    git::safe_rollback(&roost_dir, hash, &shared, &local, &profile_name)?;
     println!(
         "{} {}.",
         style("Rolled back to").green(),
