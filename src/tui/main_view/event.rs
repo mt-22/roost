@@ -726,7 +726,10 @@ fn handle_git_log(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                 state.git_log_dialog = None;
                 state.confirm_dialog = Some(ConfirmDialog::destructive(
                     "Rollback",
-                    &format!("Rollback to {}?", &hash[..7]),
+                    &format!(
+                        "Rollback to {}?\n\nWARNING: This is a destructive hard reset and cannot be easily undone.",
+                        &hash[..7]
+                    ),
                 ));
                 vec![Action::SetStatus(format!("rollback_pending:{}", hash))]
             } else {
