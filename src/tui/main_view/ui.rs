@@ -638,7 +638,7 @@ fn render_ignore_dialog(
 fn render_git_log_dialog(frame: &mut Frame, git_log: &crate::tui::main_view::dialogs::GitLogState) {
     let area = frame.area();
     let width = 58u16.min(area.width.saturating_sub(4)).max(40);
-    let height = 20u16.min(area.height.saturating_sub(4)).max(10);
+    let height = 22u16.min(area.height.saturating_sub(4)).max(10);
     let popup_x = (area.width.saturating_sub(width)) / 2;
     let popup_y = (area.height.saturating_sub(height)) / 2;
     let popup_area = Rect::new(popup_x, popup_y, width, height);
@@ -656,7 +656,15 @@ fn render_git_log_dialog(frame: &mut Frame, git_log: &crate::tui::main_view::dia
         return;
     }
 
-    let visible = inner.height as usize;
+    let chunks = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .split(inner);
+    let content_area = chunks[0];
+    let hint_area = chunks[1];
+
+    let visible = content_area.height as usize;
     let _total = git_log.commits.len();
     let (scroll, end) = git_log.scroll_for_visible(visible);
 
@@ -674,7 +682,7 @@ fn render_git_log_dialog(frame: &mut Frame, git_log: &crate::tui::main_view::dia
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    truncate_str(&commit.message, inner.width as usize - 10),
+                    truncate_str(&commit.message, content_area.width as usize - 10),
                     Style::default().fg(Color::White),
                 ),
             ]);
@@ -691,7 +699,21 @@ fn render_git_log_dialog(frame: &mut Frame, git_log: &crate::tui::main_view::dia
     let mut list_state = ListState::default();
     let cursor_in_view = git_log.cursor.saturating_sub(scroll);
     list_state.select(Some(cursor_in_view));
-    frame.render_stateful_widget(list, inner, &mut list_state);
+    frame.render_stateful_widget(list, content_area, &mut list_state);
+
+    let hint_line = Line::from(vec![
+        Span::styled("r", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(" rollback  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("j", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("/", Style::default().fg(Color::DarkGray)),
+        Span::styled("k", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(" nav  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("/", Style::default().fg(Color::DarkGray)),
+        Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(" close", Style::default().fg(Color::DarkGray)),
+    ]);
+    frame.render_widget(Paragraph::new(hint_line).alignment(ratatui::layout::Alignment::Center), hint_area);
 }
 
 fn render_undo_dialog(frame: &mut Frame, undo: &crate::tui::main_view::dialogs::UndoState) {
