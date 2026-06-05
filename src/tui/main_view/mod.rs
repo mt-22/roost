@@ -13,22 +13,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use color_eyre::Result;
 use crossterm::event::{Event, KeyEventKind, poll as crossterm_poll, read as crossterm_read};
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph},
-    Frame, Terminal,
 };
 
 use crate::app::{self, LocalAppConfig, SharedAppConfig};
 use crate::git;
 use crate::linker;
 use crate::pager;
-use crate::tui::main_view::event::{handle_event, Action};
+use crate::tui::main_view::event::{Action, handle_event};
 use crate::tui::main_view::ui::render;
 use crate::tui::suspend::suspend_and_run;
 
@@ -36,18 +36,14 @@ static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
 
 /// Minimum terminal dimensions for the main TUI.
 /// Below these, a "terminal too small" placeholder is shown instead.
-const MIN_WIDTH: u16 = 60;
+const MIN_WIDTH: u16 = 40;
 const MIN_HEIGHT: u16 = 12;
 
 /// Launch the main daily-use TUI.
 ///
 /// Sets up the terminal, runs the event loop, processes actions, and restores
 /// the terminal on exit.
-pub fn run(
-    roost_dir: PathBuf,
-    shared: SharedAppConfig,
-    local: LocalAppConfig,
-) -> Result<()> {
+pub fn run(roost_dir: PathBuf, shared: SharedAppConfig, local: LocalAppConfig) -> Result<()> {
     let mut terminal = setup_terminal()?;
 
     let original_hook = std::panic::take_hook();
@@ -92,14 +88,12 @@ fn render_too_small(frame: &mut Frame, size: Rect) {
         "Terminal too small ({}x{}). Minimum: {}x{}.",
         size.width, size.height, MIN_WIDTH, MIN_HEIGHT
     );
-    let line = Line::from(vec![
-        Span::styled(
-            message,
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ]);
+    let line = Line::from(vec![Span::styled(
+        message,
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )]);
     let paragraph = Paragraph::new(line).alignment(Alignment::Center);
     frame.render_widget(Clear, size);
     frame.render_widget(paragraph, size);
@@ -197,25 +191,23 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 state.status_message = Some(format!("Editor error: {}", e));
             }
         }
-        Action::OpenPager(content_key) => {
-            match content_key.as_str() {
-                "git_diff" => {
-                    let roost_dir = state.roost_dir.clone();
-                    let result = suspend_and_run(|| {
-                        let diff = git::diff(&roost_dir)?;
-                        pager::open(&diff)?;
-                        Ok(())
-                    });
-                    state.needs_redraw = true;
-                    if let Err(e) = result {
-                        state.status_message = Some(format!("Diff error: {}", e));
-                    }
-                }
-                other => {
-                    state.status_message = Some(format!("Unknown pager content: {}", other));
+        Action::OpenPager(content_key) => match content_key.as_str() {
+            "git_diff" => {
+                let roost_dir = state.roost_dir.clone();
+                let result = suspend_and_run(|| {
+                    let diff = git::diff(&roost_dir)?;
+                    pager::open(&diff)?;
+                    Ok(())
+                });
+                state.needs_redraw = true;
+                if let Err(e) = result {
+                    state.status_message = Some(format!("Diff error: {}", e));
                 }
             }
-        }
+            other => {
+                state.status_message = Some(format!("Unknown pager content: {}", other));
+            }
+        },
         Action::Sync => {
             let roost_dir = state.roost_dir.clone();
             let commit_msg = match git::diff_stat(&roost_dir) {
@@ -236,8 +228,12 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                     // Reload configs from disk since sync may have mutated roost.toml
                     let shared_path = app::shared_config_path(&state.roost_dir);
                     let local_path = app::local_config_path(&state.roost_dir);
-                    if let (Ok(shared), Ok(mut local)) = (app::load_shared(&shared_path), app::load_local(&local_path)) {
-                        if let Ok(actions) = linker::ensure_links(&shared, &mut local, &state.roost_dir) {
+                    if let (Ok(shared), Ok(mut local)) =
+                        (app::load_shared(&shared_path), app::load_local(&local_path))
+                    {
+                        if let Ok(actions) =
+                            linker::ensure_links(&shared, &mut local, &state.roost_dir)
+                        {
                             link_actions = actions;
                             // Save local.toml in case ensure_links auto-discovered link_paths
                             let _ = app::save_local(&local_path, &local);
@@ -258,9 +254,8 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                     ));
                 }
                 Ok(crate::git::SyncResult::FileConflict { .. }) => {
-                    state.status_message = Some(
-                        "Sync complete with file conflicts. Check status.".to_string(),
-                    );
+                    state.status_message =
+                        Some("Sync complete with file conflicts. Check status.".to_string());
                 }
                 Err(e) => {
                     state.status_message = Some(format!("Sync error: {}", e));
@@ -296,14 +291,18 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             state.sync_miller_to_selected_app();
             let local_path = app::local_config_path(&state.roost_dir);
             let _ = app::save_local(&local_path, &state.local);
-            state.status_message = Some(format!("Switched to profile '{}'", state.local.active_profile));
+            state.status_message = Some(format!(
+                "Switched to profile '{}'",
+                state.local.active_profile
+            ));
         }
         Action::SetPrimary { app, path } => {
             if let Some(app_entry) = state.shared.apps.get_mut(&app) {
                 // Convert internal roost path to original path (symlink target)
                 let resolved = if let Some(original_base) = state.local.link_paths.get(&app) {
-                    let app_dir = crate::app::profile_dir(&state.roost_dir, &state.local.active_profile)
-                        .join(&app);
+                    let app_dir =
+                        crate::app::profile_dir(&state.roost_dir, &state.local.active_profile)
+                            .join(&app);
                     if path.starts_with(&app_dir) {
                         if let Ok(rel) = path.strip_prefix(&app_dir) {
                             original_base.join(rel)
@@ -346,7 +345,8 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                     profile.app_sources = current.app_sources.clone();
 
                     // Physically copy app files into the new profile directory.
-                    let source_profile_dir = crate::app::profile_dir(&state.roost_dir, &state.local.active_profile);
+                    let source_profile_dir =
+                        crate::app::profile_dir(&state.roost_dir, &state.local.active_profile);
                     let target_profile_dir = crate::app::profile_dir(&state.roost_dir, &name);
                     let _ = std::fs::create_dir_all(&target_profile_dir);
 
@@ -363,7 +363,9 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                             if is_dir {
                                 let _ = crate::linker::copy_dir_recursive(&source, &target);
                             } else {
-                                let _ = std::fs::create_dir_all(target.parent().unwrap_or(&target_profile_dir));
+                                let _ = std::fs::create_dir_all(
+                                    target.parent().unwrap_or(&target_profile_dir),
+                                );
                                 let _ = std::fs::copy(&source, &target);
                             }
                         }
@@ -381,13 +383,19 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             let _ = app::save_shared(&shared_path, &state.shared);
             state.status_message = Some(format!("Deleted profile '{}'", name));
         }
-        Action::ImportApp { app, source_profile } => {
+        Action::ImportApp {
+            app,
+            source_profile,
+        } => {
             state.status_message = Some(format!(
                 "Import '{}' from '{}' not yet implemented",
                 app, source_profile
             ));
         }
-        Action::CopyApp { app, target_profile } => {
+        Action::CopyApp {
+            app,
+            target_profile,
+        } => {
             state.status_message = Some(format!(
                 "Copy '{}' to '{}' not yet implemented",
                 app, target_profile
@@ -398,10 +406,16 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             let profile_name = state.local.active_profile.clone();
             let ignored: HashSet<String> = state.shared.ignored.iter().cloned().collect();
             let result = suspend_and_run(|| {
-                let home = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+                let home =
+                    dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
                 let sources = crate::scanner::default_scan_sources(&home);
                 let scan_items = crate::scanner::scan_sources(&sources, &ignored);
-                match crate::app_selector::run_selection_tui(scan_items, &home, &SHOULD_EXIT, false)? {
+                match crate::app_selector::run_selection_tui(
+                    scan_items,
+                    &home,
+                    &SHOULD_EXIT,
+                    false,
+                )? {
                     crate::app_selector::TuiResult::Selected(items) => Ok(items),
                     crate::app_selector::TuiResult::Aborted => Ok(Vec::new()),
                 }
@@ -418,7 +432,11 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                         } else {
                             &item.name
                         };
-                        let app_name = if app_name.is_empty() { &item.name } else { app_name };
+                        let app_name = if app_name.is_empty() {
+                            &item.name
+                        } else {
+                            app_name
+                        };
                         if state.shared.apps.contains_key(app_name) {
                             failures.push(format!("'{}' already managed", app_name));
                             continue;
@@ -439,10 +457,14 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                                         ignore: Vec::new(),
                                     },
                                 );
-                                if let Some(profile) = state.shared.profiles.get_mut(&profile_name) {
+                                if let Some(profile) = state.shared.profiles.get_mut(&profile_name)
+                                {
                                     profile.apps.insert(app_name.to_string());
                                 }
-                                state.local.link_paths.insert(app_name.to_string(), item.path.clone());
+                                state
+                                    .local
+                                    .link_paths
+                                    .insert(app_name.to_string(), item.path.clone());
                                 added.push(app_name.to_string());
                             }
                             Err(e) => {
@@ -466,7 +488,11 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                             &state.shared.ignored,
                             &state.shared.apps,
                         );
-                        let _ = crate::linker::ensure_links(&state.shared, &mut state.local, &roost_dir);
+                        let _ = crate::linker::ensure_links(
+                            &state.shared,
+                            &mut state.local,
+                            &roost_dir,
+                        );
                         let names = added.join(", ");
                         state.pending_auto_commit = Some(format!("add: {}", names));
                         state.status_message = Some(format!("Added {} app(s)", added.len()));
@@ -489,14 +515,22 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             state.shared.ignored.insert(pattern.clone());
             let shared_path = app::shared_config_path(&state.roost_dir);
             let _ = app::save_shared(&shared_path, &state.shared);
-            let _ = crate::gitignore::regenerate(&state.roost_dir, &state.shared.ignored, &state.shared.apps);
+            let _ = crate::gitignore::regenerate(
+                &state.roost_dir,
+                &state.shared.ignored,
+                &state.shared.apps,
+            );
             state.status_message = Some(format!("Added ignore pattern '{}'", pattern));
         }
         Action::RemoveIgnore(pattern) => {
             state.shared.ignored.remove(&pattern);
             let shared_path = app::shared_config_path(&state.roost_dir);
             let _ = app::save_shared(&shared_path, &state.shared);
-            let _ = crate::gitignore::regenerate(&state.roost_dir, &state.shared.ignored, &state.shared.apps);
+            let _ = crate::gitignore::regenerate(
+                &state.roost_dir,
+                &state.shared.ignored,
+                &state.shared.apps,
+            );
             state.status_message = Some(format!("Removed ignore pattern '{}'", pattern));
         }
         Action::Undo => {
@@ -512,7 +546,8 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             state.needs_redraw = true;
             match result {
                 Ok(()) => {
-                    state.status_message = Some("Undone last commit with app preservation".to_string());
+                    state.status_message =
+                        Some("Undone last commit with app preservation".to_string());
                 }
                 Err(e) => {
                     state.status_message = Some(format!("Undo failed: {}", e));

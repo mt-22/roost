@@ -113,8 +113,7 @@ pub fn local_config_path(roost_dir: &Path) -> PathBuf {
 
 pub fn load_shared(path: &PathBuf) -> Result<SharedAppConfig> {
     let raw = std::fs::read_to_string(path)?;
-    let migrated = migrate_shared(&raw);
-    let config: SharedAppConfig = toml::from_str(&migrated)?;
+    let config: SharedAppConfig = toml::from_str(&raw)?;
     validate_shared(&config)?;
     Ok(config)
 }
@@ -144,14 +143,6 @@ fn atomic_write(path: &Path, contents: &str) -> Result<()> {
     std::fs::write(&tmp, contents)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
-}
-
-fn migrate_shared(raw: &str) -> String {
-    
-    // Future migration hooks go here.
-    // e.g. old `apps` list format -> table format
-    // e.g. old `link_path` -> `link_paths`
-    raw.to_string()
 }
 
 /// For apps with exactly one file, automatically set `primary_config`

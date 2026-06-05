@@ -265,24 +265,28 @@ impl MillerColumns {
 
 impl Widget for &MillerColumns {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let narrow = area.width < NARROW_WIDTH;
+        let three_column = area.width >= NARROW_WIDTH;
+        let stacked = area.width < VERY_NARROW_WIDTH;
 
-        let chunks = if narrow {
-            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+        let chunks = if stacked {
+            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .split(area)
-        } else {
+        } else if three_column {
             Layout::horizontal([
                 Constraint::Percentage(33),
                 Constraint::Percentage(34),
                 Constraint::Percentage(33),
             ])
             .split(area)
+        } else {
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(area)
         };
 
         let current_idx = self.columns.len() - 1;
 
-        // Parent column (only in wide mode)
-        if !narrow {
+        // Parent column (only in 3-column wide mode)
+        if three_column {
             if current_idx > 0 {
                 let parent = &self.columns[current_idx - 1];
                 let current_path = &self.columns[current_idx].path;
@@ -336,7 +340,7 @@ impl Widget for &MillerColumns {
         };
         let current_title = format!(" Current: {} ", truncated_name);
 
-        let current_chunk = if narrow { chunks[0] } else { chunks[1] };
+        let current_chunk = if three_column { chunks[1] } else { chunks[0] };
         render_entries(
             buf,
             current_chunk,
@@ -350,7 +354,7 @@ impl Widget for &MillerColumns {
             self.primary_config.as_deref(),
         );
 
-        let preview_chunk = if narrow { chunks[1] } else { chunks[2] };
+        let preview_chunk = if three_column { chunks[2] } else { chunks[1] };
         let real_cursor = self.real_cursor();
         if let Some(entry) = current.entries.get(real_cursor) {
             if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
@@ -382,8 +386,12 @@ impl Widget for &MillerColumns {
 }
 
 /// Threshold below which the miller columns drop the parent column and show
-/// only two columns (current + preview) with better spacing.
+/// only two columns (current + preview) side by side.
 const NARROW_WIDTH: u16 = 100;
+
+/// Threshold below which the miller columns stack vertically instead of
+/// side by side: current on top, preview below.
+const VERY_NARROW_WIDTH: u16 = 55;
 
 pub(crate) fn render_entries(
     buf: &mut Buffer,

@@ -172,7 +172,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | **Primary config highlight** | **Done** | `★` marker in Miller columns on primary config file; cursor auto-focuses on it. |
 | **Restore from Git Log** | **Done** | `git log` rollback (`g` → `r`) uses `safe_rollback`: selective checkout preserves apps not present at target commit, creates forward commit instead of destructive reset. |
 | **Tilde-path serde** | **Done** | Custom serde for `PathBuf` that serializes as `~/...` and deserializes using current home. Applied to `Application::primary_config`. |
-| **Config migration** | **P2** | `migrate_shared()` is a no-op stub. Needs dual-format `apps` and `link_path` -> `link_paths` handling |
+| **Config migration** | **Removed** | Was a speculative no-op stub; never needed — removed |
 | **git push in sync** | **Done** | `sync()` now pushes to `origin main` after successful rebase. Tested in integration tests. |
 | **Concurrency protection** | **Done** | Config writes use atomic temp-file-then-rename pattern in `save_shared()`, `save_local()`, and `gitignore::regenerate()`. |
 | **Integration tests** | **P2** | Missing: init. Done: diff, ignore, restore, rollback, adopt, list, save, where --profile, **sync**. |
@@ -249,14 +249,14 @@ Fix remaining backend gaps that affect both CLI and TUI.
 
 **Tasks:**
 1. **Tilde-path serde module** — Custom serde for `PathBuf` that serializes as `~/...` and deserializes using current home
-2. **Config migration** — Implement `migrate_shared()` for dual-format `apps` and `link_path` -> `link_paths`
+2. **Config migration** — Was a speculative no-op stub; never needed — removed
 3. **git push in sync** — Add `git push origin main` after successful rebase in `git::sync()`
 4. **Concurrency protection** — Atomic config writes via temp file + rename
 5. **File preview** — Inline content preview for files in Miller columns
 
 **Status:**
 - ✅ Tilde-path serde — Done
-- ⬜ Config migration — Still a no-op
+- ✅ Config migration — Removed as unnecessary
 - ✅ git push in sync — Done
 - ✅ Concurrency protection — Done
 - ✅ File preview — Done (pre-existing)

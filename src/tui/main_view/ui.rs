@@ -209,20 +209,20 @@ fn render_status_bar(state: &MainViewState, frame: &mut Frame, area: Rect) {
         )]
     } else {
         let base = vec![
+            Span::styled("?", key_style()),
+            Span::styled(" help  ", Style::default().fg(Color::DarkGray)),
             Span::styled("j", key_style()),
             Span::styled("/", Style::default().fg(Color::DarkGray)),
             Span::styled("k", key_style()),
             Span::styled(" nav  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Tab", key_style()),
-            Span::styled(" focus  ", Style::default().fg(Color::DarkGray)),
             Span::styled("h", key_style()),
             Span::styled("/", Style::default().fg(Color::DarkGray)),
             Span::styled("l", key_style()),
             Span::styled(" miller  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Tab", key_style()),
+            Span::styled(" focus  ", Style::default().fg(Color::DarkGray)),
             Span::styled("/", key_style()),
             Span::styled(" search  ", Style::default().fg(Color::DarkGray)),
-            Span::styled("?", key_style()),
-            Span::styled(" help  ", Style::default().fg(Color::DarkGray)),
             Span::styled("q", key_style()),
             Span::styled(" quit", Style::default().fg(Color::DarkGray)),
         ];
@@ -253,7 +253,9 @@ fn render_status_bar(state: &MainViewState, frame: &mut Frame, area: Rect) {
         let actions = vec![
             Span::styled("  ·  ", Style::default().fg(Color::DarkGray)),
             Span::styled("s", key_style()),
-            Span::styled(" sync  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(" save ", Style::default().fg(Color::DarkGray)),
+            Span::styled("S", key_style()),
+            Span::styled(" sync ", Style::default().fg(Color::DarkGray)),
             Span::styled("a", key_style()),
             Span::styled(" add  ", Style::default().fg(Color::DarkGray)),
             Span::styled("i", key_style()),
