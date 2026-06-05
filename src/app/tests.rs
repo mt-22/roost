@@ -202,3 +202,81 @@ fn roost_dir_respects_env_var() {
     }
     assert_eq!(dir, PathBuf::from("/tmp/test-roost"));
 }
+
+#[test]
+fn tilde_serde_round_trip() {
+    let home = dirs::home_dir().expect("need home dir for test");
+    let config = SharedAppConfig {
+        remote: None,
+        profiles: BTreeMap::new(),
+        apps: {
+            let mut m = BTreeMap::new();
+            m.insert(
+                "nvim".into(),
+                Application {
+                    primary_config: Some(home.join(".config/nvim/init.lua")),
+                    on_profiles: BTreeSet::new(),
+                    is_dir: true,
+                    ignore: Vec::new(),
+                },
+            );
+            m
+        },
+        ignored: BTreeSet::new(),
+    };
+
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("roost.toml");
+    save_shared(&path, &config).unwrap();
+    let contents = std::fs::read_to_string(&path).unwrap();
+
+    // Should contain tilde path, not absolute home path
+    assert!(
+        contents.contains("primary_config = \"~/.config/nvim/init.lua\""),
+        "Serialized roost.toml should use tilde path. Contents:\n{}",
+        contents
+    );
+
+    let loaded = load_shared(&path).unwrap();
+    assert_eq!(
+        loaded.apps["nvim"].primary_config,
+        Some(home.join(".config/nvim/init.lua"))
+    );
+}
+
+#[test]
+fn tilde_serde_deserializes_non_home_path_unchanged() {
+    let home = dirs::home_dir().expect("need home dir for test");
+    let toml = format!(
+        r#"
+        [apps.nvim]
+        primary_config = "/usr/share/nvim/init.lua"
+        is_dir = false
+        "#
+    );
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("roost.toml");
+    std::fs::write(&path, toml).unwrap();
+    let loaded = load_shared(&path).unwrap();
+    assert_eq!(
+        loaded.apps["nvim"].primary_config,
+        Some(PathBuf::from("/usr/share/nvim/init.lua"))
+    );
+}
+
+#[test]
+fn tilde_serde_deserializes_relative_path_unchanged() {
+    let toml = r#"
+        [apps.git]
+        primary_config = "init.lua"
+        is_dir = false
+    "#;
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("roost.toml");
+    std::fs::write(&path, toml).unwrap();
+    let loaded = load_shared(&path).unwrap();
+    assert_eq!(
+        loaded.apps["git"].primary_config,
+        Some(PathBuf::from("init.lua"))
+    );
+}

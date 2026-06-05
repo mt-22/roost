@@ -1,10 +1,51 @@
 use crate::os_detect::OsInfo;
 use color_eyre::Result;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer, Deserializer};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
+
+/// Serialize a PathBuf as a tilde-prefixed string when it lives inside the home directory.
+fn serialize_tilde<S>(path: &Option<PathBuf>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match path {
+        None => serializer.serialize_none(),
+        Some(p) => {
+            if let Some(home) = dirs::home_dir() {
+                if let Ok(stripped) = p.strip_prefix(&home) {
+                    let tilde_path = PathBuf::from("~").join(stripped);
+                    serializer.serialize_some(&tilde_path.display().to_string())
+                } else {
+                    serializer.serialize_some(&p.display().to_string())
+                }
+            } else {
+                serializer.serialize_some(&p.display().to_string())
+            }
+        }
+    }
+}
+
+/// Deserialize a string path, expanding a leading `~/` to the current home directory.
+fn deserialize_tilde<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let maybe_str: Option<String> = Option::deserialize(deserializer)?;
+    match maybe_str {
+        None => Ok(None),
+        Some(s) => {
+            if let Some(rest) = s.strip_prefix("~/") {
+                let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+                Ok(Some(home.join(rest)))
+            } else {
+                Ok(Some(PathBuf::from(s)))
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SharedAppConfig {
@@ -35,6 +76,11 @@ pub struct Profile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Application {
+    #[serde(
+        default,
+        serialize_with = "serialize_tilde",
+        deserialize_with = "deserialize_tilde"
+    )]
     pub primary_config: Option<PathBuf>,
     #[serde(default)]
     pub on_profiles: BTreeSet<String>,
