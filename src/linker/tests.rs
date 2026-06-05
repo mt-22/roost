@@ -596,3 +596,26 @@ fn switch_profile_rejects_unknown_profile() {
     let result = switch_profile("laptop", "nonexistent", &config, &mut local, &roost);
     assert!(result.is_err());
 }
+
+#[test]
+fn test_validate_path_rejects_outside_home() {
+    let home = std::path::PathBuf::from("/home/user");
+    let bad = std::path::Path::new("/etc/passwd");
+    assert!(validate_path_in_home(bad, &home).is_err());
+}
+
+#[test]
+fn test_validate_path_rejects_parent_dir() {
+    let home = std::path::PathBuf::from("/home/user");
+    let bad = std::path::Path::new("/home/user/../etc/passwd");
+    assert!(validate_path_in_home(bad, &home).is_err());
+}
+
+#[test]
+fn test_validate_path_accepts_inside_home() {
+    let tmp = TempDir::new().unwrap();
+    let home = tmp.path();
+    let good = home.join(".bashrc");
+    fs::write(&good, "test").unwrap();
+    assert!(validate_path_in_home(&good, home).is_ok());
+}

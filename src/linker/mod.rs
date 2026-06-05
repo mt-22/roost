@@ -9,6 +9,34 @@ use crate::app::{LocalAppConfig, SharedAppConfig, profile_dir};
 pub const MISC_DIR_NAME: &str = "misc";
 const BACKUP_DIR_NAME: &str = ".backups";
 
+/// Reject paths that escape the home directory or contain parent-dir components.
+/// This prevents a malicious synced roost.toml from causing sensitive file
+/// overwrites via ingest/restore operations.
+pub fn validate_path_in_home(path: &Path, home: &Path) -> Result<()> {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let canonical_home = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
+
+    if !canonical.starts_with(&canonical_home) {
+        bail!(
+            "Path '{}' is outside the home directory ({})",
+            path.display(),
+            home.display()
+        );
+    }
+
+    // Reject explicit parent-dir references (defense in depth)
+    for component in path.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            bail!(
+                "Path '{}' contains parent directory references (..)",
+                path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
 // move origin into roost, symlink origin back to roost
 pub fn ingest(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> Result<()> {
     if !origin.exists() {
