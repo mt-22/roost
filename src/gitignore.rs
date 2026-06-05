@@ -67,7 +67,10 @@ pub fn regenerate(
         lines.join("\n") + "\n\n" + &user_rules + "\n"
     };
 
-    fs::write(path, output)?;
+    // atomic write: temp file then rename prevents mid-write corruption
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, output)?;
+    fs::rename(&tmp, path)?;
     Ok(())
 }
 

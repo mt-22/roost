@@ -121,7 +121,7 @@ pub fn load_shared(path: &PathBuf) -> Result<SharedAppConfig> {
 
 pub fn save_shared(path: &PathBuf, config: &SharedAppConfig) -> Result<()> {
     let contents = toml::to_string_pretty(config)?;
-    std::fs::write(path, contents)?;
+    atomic_write(path, &contents)?;
     Ok(())
 }
 
@@ -133,7 +133,16 @@ pub fn load_local(path: &PathBuf) -> Result<LocalAppConfig> {
 
 pub fn save_local(path: &PathBuf, config: &LocalAppConfig) -> Result<()> {
     let contents = toml::to_string_pretty(config)?;
-    std::fs::write(path, contents)?;
+    atomic_write(path, &contents)?;
+    Ok(())
+}
+
+/// Atomically write a file by writing to a .tmp sibling then renaming.
+/// This prevents corruption if the process crashes mid-write.
+fn atomic_write(path: &Path, contents: &str) -> Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, contents)?;
+    std::fs::rename(&tmp, path)?;
     Ok(())
 }
 
