@@ -106,13 +106,14 @@ fn rollback_to_specific_hash() {
         .success()
         .stdout(predicate::str::contains("Rolled back to"));
 
+    // safe_rollback creates a new forward commit rather than moving HEAD
     let log = SysCommand::new("git")
         .args(["log", "-1", "--pretty=%s"])
         .current_dir(dir)
         .output()
         .unwrap();
     let msg = String::from_utf8_lossy(&log.stdout);
-    assert!(msg.contains("second"));
+    assert!(msg.contains("rollback to"), "expected rollback commit, got: {}", msg);
 }
 
 #[test]
