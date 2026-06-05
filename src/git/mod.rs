@@ -463,11 +463,12 @@ pub fn log(roost_dir: &Path, n: usize) -> Result<Vec<CommitInfo>> {
         .split('\x01')
         .filter(|s| !s.is_empty())
         .map(|record| {
+            let record = record.trim();
             let parts: Vec<&str> = record.split('\0').collect();
             CommitInfo {
                 hash: parts[0].to_string(),
-                message: parts[1].to_string(),
-                timestamp: parts[2].to_string(),
+                message: parts.get(1).map(|s| s.to_string()).unwrap_or_default(),
+                timestamp: parts.get(2).map(|s| s.to_string()).unwrap_or_default(),
             }
         })
         .collect();
@@ -478,6 +479,14 @@ pub fn log(roost_dir: &Path, n: usize) -> Result<Vec<CommitInfo>> {
 pub fn diff(roost_dir: &Path) -> Result<String> {
     let output = run_git(roost_dir, &["diff", "HEAD"])?;
     Ok(output)
+}
+
+/// Parse `roost.toml` from a specific git commit without checking it out.
+pub fn read_shared_at(roost_dir: &Path, hash: &str) -> Result<SharedAppConfig> {
+    let output = run_git(roost_dir, &["show", &format!("{}:roost.toml", hash)])?;
+    let config: SharedAppConfig = toml::from_str(&output)?;
+    crate::app::validate_shared(&config)?;
+    Ok(config)
 }
 
 pub fn undo(roost_dir: &Path, n: usize) -> Result<()> {

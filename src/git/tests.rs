@@ -144,6 +144,44 @@ fn is_dirty_detects_changes() {
 }
 
 #[test]
+fn read_shared_at_reads_config_from_commit() {
+    let tmp = setup_git_repo();
+
+    let config1 = r#"
+[apps.zsh]
+is_dir = true
+on_profiles = ["default"]
+
+[profiles.default]
+apps = ["zsh"]
+"#;
+    fs::write(tmp.path().join("roost.toml"), config1).unwrap();
+    save(tmp.path(), "add zsh").unwrap();
+
+    let hash1 = log(tmp.path(), 1).unwrap()[0].hash.clone();
+
+    let config2 = r#"
+[apps.zsh]
+is_dir = true
+on_profiles = ["default"]
+
+[apps.nvim]
+is_dir = true
+on_profiles = ["default"]
+
+[profiles.default]
+apps = ["zsh", "nvim"]
+"#;
+    fs::write(tmp.path().join("roost.toml"), config2).unwrap();
+    save(tmp.path(), "add nvim").unwrap();
+
+    let config = super::read_shared_at(tmp.path(), &hash1).unwrap();
+    assert!(config.apps.contains_key("zsh"));
+    assert!(!config.apps.contains_key("nvim"), "nvim should not exist at hash1");
+    assert_eq!(config.profiles.get("default").unwrap().apps.len(), 1);
+}
+
+#[test]
 fn set_and_get_remote() {
     let tmp = setup_git_repo();
 
