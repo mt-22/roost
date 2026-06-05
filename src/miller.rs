@@ -326,7 +326,7 @@ impl Widget for &MillerColumns {
                     Err(_) => render_empty(buf, chunks[2]),
                 }
             } else {
-                render_file_indicator(buf, chunks[2]);
+                render_file_preview(buf, chunks[2], &entry.path());
             }
         } else {
             render_empty(buf, chunks[2]);
@@ -433,20 +433,53 @@ fn render_empty(buf: &mut Buffer, area: Rect) {
     block.render(area, buf);
 }
 
-fn render_file_indicator(buf: &mut Buffer, area: Rect) {
+fn render_file_preview(buf: &mut Buffer, area: Rect, path: &Path) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(" Preview ");
     let inner = block.inner(area);
     block.render(area, buf);
-    if inner.width > 6 && inner.height > 0 {
-        buf.set_string(
-            inner.x,
-            inner.y,
-            "(file)",
-            Style::default().fg(Color::DarkGray),
-        );
+
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let content = match std::fs::read(path) {
+        Ok(bytes) => {
+            if bytes.contains(&0) || String::from_utf8(bytes.clone()).is_err() {
+                None
+            } else {
+                String::from_utf8(bytes).ok()
+            }
+        }
+        Err(_) => None,
+    };
+
+    match content {
+        Some(text) => {
+            let lines: Vec<&str> = text.lines().collect();
+            let visible = inner.height as usize;
+            for (i, line) in lines.iter().take(visible).enumerate() {
+                let truncated: String = line.chars().take(inner.width as usize).collect();
+                buf.set_string(
+                    inner.x,
+                    inner.y + i as u16,
+                    &truncated,
+                    Style::default().fg(Color::White),
+                );
+            }
+        }
+        None => {
+            if inner.height > 0 && inner.width > 6 {
+                buf.set_string(
+                    inner.x,
+                    inner.y,
+                    "(binary file)",
+                    Style::default().fg(Color::DarkGray),
+                );
+            }
+        }
     }
 }
 
@@ -608,5 +641,30 @@ mod tests {
             mc.current_cursor_path().unwrap(),
             dir.path().join("bbb.txt")
         );
+    }
+
+    #[test]
+    fn preview_renders_text_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = "line1\nline2\nline3";
+        fs::write(dir.path().join("file.txt"), content).unwrap();
+
+        let mut mc = MillerColumns::new(dir.path());
+        mc.move_down();
+        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("file.txt"));
+        assert!(!mc.current_cursor_is_dir());
+    }
+
+    #[test]
+    fn preview_binary_file() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("binary.bin"), vec![0u8, 1, 2, 255, 0]).unwrap();
+
+        let mut mc = MillerColumns::new(dir.path());
+        mc.move_down();
+        assert!(!mc.current_cursor_is_dir());
+        let path = mc.current_cursor_path().unwrap();
+        let bytes = fs::read(&path).unwrap();
+        assert!(bytes.contains(&0));
     }
 }
