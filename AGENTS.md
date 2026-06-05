@@ -22,11 +22,11 @@ src/
 
   app/
     mod.rs             -- Data models + config load/save (SharedAppConfig, LocalAppConfig)
-    tests.rs           -- Unit tests (8 tests)
+    tests.rs           -- Unit tests (13 tests)
 
   linker/
     mod.rs             -- Symlink operations (ingest, restore, unlink, ensure_links, switch, import, copy)
-    tests.rs           -- Unit tests (16 tests)
+    tests.rs           -- Unit tests (19 tests)
 
   scanner/
     mod.rs             -- App discovery, confidence scoring, multi-source scanning
@@ -119,7 +119,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 **Dev dependencies:** `assert_cmd`, `predicates`, `tempfile`
 **Runtime external:** `git` CLI, `$EDITOR` (default `vi`), `$PAGER` (default `less`)
 
-**Test targets:** ~174 tests total (~108 unit + ~65 integration + 1 doctest). Most CLI commands now have integration test coverage. Rollback and sync tests included.
+**Test targets:** ~184 tests total (~112 unit + ~71 integration + 1 doctest). All CLI commands have integration test coverage except init. Rollback and sync tests included.
 
 ---
 
@@ -160,25 +160,22 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | Config validation | **Solid** | Cycle detection, unknown app/profile checks |
 | Ignore system | **Solid** | Global + per-app patterns, .gitignore regeneration |
 
-### What's Missing or Incomplete
+### Release-Prep Branch Accomplishments
 
-| Area | Priority | Gap |
-|------|----------|-----|
-| **File preview in Miller columns** | **Done** | Inline text preview + binary indicator. Responsive layout (drops parent column below 100 width). |
-| **Git Log UX improvements** | **Done** | `r` rollback documented in help, footer hint in dialog, stronger confirm warning. |
-| **Terminal size enforcement** | **Done** | Minimum 40x12 with graceful too-small message. Narrow-width panic fixed via saturating_sub. |
-| **Responsive miller columns** | **Done** | Three modes: 3-col horizontal ≥100, 2-col horizontal ≥55, vertical stack < 55. Shows current dir name in header. |
-| **Add App dialog** | **Done** | Reuses `app_selector.rs` for full adoption TUI; `auto_select=false` from main TUI. |
-| **Primary config highlight** | **Done** | `★` marker in Miller columns on primary config file; cursor auto-focuses on it. |
-| **Restore from Git Log** | **Done** | `git log` rollback (`g` → `r`) uses `safe_rollback`: selective checkout preserves apps not present at target commit, creates forward commit instead of destructive reset. |
-| **Tilde-path serde** | **Done** | Custom serde for `PathBuf` that serializes as `~/...` and deserializes using current home. Applied to `Application::primary_config`. |
-| **Config migration** | **Removed** | Was a speculative no-op stub; never needed — removed |
-| **git push in sync** | **Done** | `sync()` now pushes to `origin main` after successful rebase. Tested in integration tests. |
-| **Concurrency protection** | **Done** | Config writes use atomic temp-file-then-rename pattern in `save_shared()`, `save_local()`, and `gitignore::regenerate()`. |
-| **Integration tests** | **P2** | Missing: init. Done: diff, ignore, restore, rollback, adopt, list, save, where --profile, **sync**. |
-| **Init reconstruction** | **Done** | When `roost.toml` exists but `local.toml` is missing, `roost init` now reconstructs `local.toml` by picking an existing profile and auto-discovering `link_paths` from common paths or existing symlinks. |
-| **Structural merge** | **Done** | Merge now handles field-level conflicts (`primary_config`, `ignore`), profile/app deletion on `Remote` preference, and ignored-pattern replacement — not just `is_dir`. |
-| **Rebase error handling** | **Done** | `rebase --continue` errors are propagated, not swallowed. `Local` preference no longer returns false `Clean` when `get_conflict_files()` returns empty. |
+All tasks completed on `release-prep` branch (10 commits beyond base):
+
+| Fix | Description |
+|-----|-------------|
+| **Fuzzy search** | Query sync with FuzzyEngine, filter persistence, j/k routing through engine, filtered rendering |
+| **RemoveApp action** | Mirrors CLI `cmd_remove` — unlink symlinks, remove from configs, save atomically, auto-commit |
+| **Profile switch** | Calls `linker::switch_profile()` so symlinks update on disk, not just local.toml |
+| **Source marker** | `←` rendered for cross-profile linked apps (was dead code) |
+| **Help text** | `s`=Save, `S`=Sync, `r` only in git log, panel-specific keys documented |
+| **Hash slicing** | `&hash[..7]` replaced with `hash[..hash.len().min(7)]` in 3 locations |
+| **Status message** | No longer cleared on every keypress |
+| **Atomic writes** | Concurrency-safe via unique temp filenames (PID + ms timestamp) in `app/mod.rs` and `gitignore.rs` |
+| **Path traversal** | `validate_path_in_home()` helper with 3 unit tests in `linker/mod.rs` |
+| **App name sanitization** | `sanitize_app_name()` replaces `/`, `\`, `\0` with `_`; applied in `cmd_add`, `init.rs`, TUI add-app |
 
 ### Known Issues / Fragile Areas
 
@@ -200,110 +197,30 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 
 ---
 
-## Work Streams
+## v0.2.0 Release Checklist
 
-This is the ordered breakdown of remaining work to reach SPEC compliance:
+### Release Blockers (Must Fix)
 
-### Stream 1: Suspend/Resume Infrastructure
-Generic helper to leave alternate screen, run external command, restore TUI.
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 1 | **Profile deletion confirm** | ⬜ | No y/n confirm before deleting profile |
+| 2 | **Panic hook leak** | ⬜ | `set_hook` called on every TUI start without check; panics on re-entry |
+| 3 | **Ctrl-C handler leak** | ⬜ | `ctrlc::set_handler` called on every TUI start without check; panics on re-entry |
+| 4 | **Terminal::size() failure** | ⬜ | TUI init should handle `terminal.size()` errors gracefully |
+| 5 | **README** | ⬜ | Needs install, usage, config docs |
+| 6 | **LICENSE** | ⬜ | Needs license file |
+| 7 | **Cargo.toml metadata** | ⬜ | description, authors, repository, keywords, categories |
+| 8 | **CHANGELOG** | ⬜ | Document v0.2.0 changes since v0.1.0 |
 
-**Status:** ✅ `tui/suspend.rs` implemented with tests. Wired into main TUI event handlers for `$EDITOR`, `$PAGER`, and `git`.
+### Quality Improvements (Should Fix)
 
----
-
-### Stream 2: Main TUI Core (`tui/main_view/`)
-Build the primary daily interface launched by `roost` with no args.
-
-**Status:** ✅ Complete.
-
-**Files:**
-- `src/tui/main_view/mod.rs` — Entry point, run loop, action processing, suspend/resume integration
-- `src/tui/main_view/state.rs` — MainViewState with panels, dialog stack, pending_auto_commit
-- `src/tui/main_view/event.rs` — Key dispatch, dialog routing, Action enum
-- `src/tui/main_view/ui.rs` — Rendering: header, apps panel, miller files panel, status bar, all dialogs
-
-**Key behaviors:**
-- Header: `roost · profile: <name>  N apps managed`
-- Left panel: App list with `★` primary marker, `←source` for linked apps
-- Right panel: Miller columns for file browsing (no outer box, just 'Files' header)
-- Focus switching between panels with `Tab`; `h/l` navigate in/out of miller
-- Action keys: `o` open, `x` remove, `f` import, `m` paste, `e/Enter` edit, `p` set primary, `s` sync, `a` add, `i` ignore, `P` profile, `g` git log, `d` diff, `u` undo
-
-### Stream 3: Dialog System (`tui/main_view/dialogs/`)
-Implement the 7 dialog overlays on top of Main TUI core.
-
-**Status:** ✅ All 7 dialogs implemented and wired.
-
-**Files:**
-- `src/tui/main_view/dialogs/mod.rs` — Re-exports
-- `src/tui/main_view/dialogs/help.rs` — Searchable keybind reference, j/k nav
-- `src/tui/main_view/dialogs/ignore.rs` — Add/remove ignore patterns, Tab cycles modes
-- `src/tui/main_view/dialogs/profile.rs` — Switch/create/delete profiles, Tab cycles modes, visual mode hint
-- `src/tui/main_view/dialogs/git_log.rs` — Git history browser, `r` triggers rollback confirm
-- `src/tui/main_view/dialogs/undo.rs` — Undo confirmation dialog
-- `src/tui/main_view/dialogs/app_link.rs` — Import/paste multi-step wizard
-- `src/tui/main_view/dialogs/diff_view.rs` — Inline scrollable diff viewer with color coding
-
-### Stream 4: Backend Hardening
-Fix remaining backend gaps that affect both CLI and TUI.
-
-**Tasks:**
-1. **Tilde-path serde module** — Custom serde for `PathBuf` that serializes as `~/...` and deserializes using current home
-2. **Config migration** — Was a speculative no-op stub; never needed — removed
-3. **git push in sync** — Add `git push origin main` after successful rebase in `git::sync()`
-4. **Concurrency protection** — Atomic config writes via temp file + rename
-5. **File preview** — Inline content preview for files in Miller columns
-
-**Status:**
-- ✅ Tilde-path serde — Done
-- ✅ Config migration — Removed as unnecessary
-- ✅ git push in sync — Done
-- ✅ Concurrency protection — Done
-- ✅ File preview — Done (pre-existing)
-
-### Stream 5: Test Coverage
-Fill in missing integration tests.
-
-**Files to create / extend:**
-- ✅ `tests/diff.rs` — diff command
-- ✅ `tests/ignore.rs` — ignore command
-- ✅ `tests/restore.rs` — restore command
-- ✅ `tests/rollback.rs` — rollback command
-- ✅ `tests/adopt.rs` — adopt command
-- ✅ `tests/list.rs` — list command
-- ✅ `tests/save.rs` — save command
-- ✅ `tests/where.rs` — extend with `--profile` tests
-- ✅ `tests/sync.rs` — sync command (6 tests: no init, no remote, up-to-date, pulls remote, pushes local, detects conflict)
-- ⬜ `tests/init.rs` — init wizard + onboarding TUI (mock selection)
-
----
-
-## Implementation Order Recommendation
-
-The SPEC suggests this order for maximum testability. Current progress is through step 7:
-
-1. ✅ `app/` — Data models + TOML load/save
-2. ✅ `os_detect.rs`
-3. ✅ `scanner/`
-4. ✅ `linker/`
-5. ✅ `git/`
-6. ✅ `init.rs` + `logo.rs`
-7. ✅ `main.rs` — CLI dispatch + all subcommand handlers
-8. ✅ `tui/search/` — Fuzzy search (exists, functional)
-9. ✅ `app_selector.rs` — App selection TUI (functional, monolithic is acceptable)
-10. ⬜ `tui/main_view/` + `dialogs/` — **Biggest remaining piece**
-11. 🔄 Integration tests alongside each layer
-
-**Recommended next sequence (user-directed):**
-1. ✅ **Streams 1-3** — Suspend/resume, Main TUI, Dialogs — all done
-2. ✅ **File preview in Miller columns** — Inline content for files (first N lines), skip binary
-3. ✅ **Git Log UX** — Rollback warning, footer hint, keybind documentation
-4. ✅ **Responsive miller + Terminal size enforcement** — Three modes: 3-col, 2-col, vertical stack. Min size enforcement, narrow-width safety
-5. ✅ **Add App dialog** — Reuses `app_selector.rs` for full adoption TUI with multi-select
-6. ✅ **Primary config highlight** — `★` marker in Miller columns on primary config file; cursor auto-focuses on it
-7. ✅ **Restore from Git Log** — Selective rollback preserves apps not at target commit, forward commit instead of destructive reset
-7. ✅ **Backend hardening** (Stream 4) — Tilde serde, git push, atomic writes, config migration removed
-8. ✅ **Test coverage** (Stream 5) — sync.rs done, init.rs still needed
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 9 | **File preview limit** | ⬜ | Miller file preview reads full file; should cap at N lines (e.g. 100) |
+| 10 | **Unicode display width** | ⬜ | Search/miller may misalign multi-byte characters |
+| 11 | **Status bar overflow** | ⬜ | Long status messages overflow the bar width |
+| 12 | **init.rs integration test** | ⬜ | Missing TUI/non-TUI init test coverage |
+| 13 | **Git pull --rebase UX** | ⬜ | Sync surfaces conflicts but aborts rebase rather than prompting user |
 
 ---
 
