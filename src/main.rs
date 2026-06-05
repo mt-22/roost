@@ -171,8 +171,14 @@ fn cmd_save(message: Option<String>) -> Result<()> {
         println!("{}", style("Nothing to save.").dim());
         return Ok(());
     }
-    let msg = message.as_deref().unwrap_or("save: manual save");
-    git::save(&roost_dir, msg)?;
+    let msg = if let Some(m) = message {
+        m
+    } else {
+        git::diff_stat(&roost_dir)
+            .map(|s| if s.is_empty() { "save: manual save".to_string() } else { format!("save: {}", s) })
+            .unwrap_or_else(|_| "save: manual save".to_string())
+    };
+    git::save(&roost_dir, &msg)?;
     println!("{}", style("Saved.").green());
     Ok(())
 }
@@ -405,6 +411,11 @@ fn cmd_remove(app_name: &str) -> Result<()> {
 fn cmd_sync() -> Result<()> {
     let (_, _, roost_dir) = load_configs()?;
     let result = git::sync(&roost_dir, git::ConflictPreference::Local)?;
+
+    // Reload configs since sync may have changed roost.toml via structural merge
+    let (shared, local, _) = load_configs()?;
+    let actions = linker::ensure_links(&shared, &local, &roost_dir)?;
+
     match result {
         git::SyncResult::Clean => println!("{}", style("Sync complete. Changes pushed to origin.").green()),
         git::SyncResult::ConfigConflict { resolved } => {
@@ -420,6 +431,14 @@ fn cmd_sync() -> Result<()> {
             );
         }
     }
+
+    if !actions.is_empty() {
+        println!("{}", style("Link actions:").cyan());
+        for action in &actions {
+            println!("  {}", style(action).dim());
+        }
+    }
+
     Ok(())
 }
 

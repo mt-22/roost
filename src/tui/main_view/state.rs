@@ -256,4 +256,15 @@ impl MainViewState {
         let end = (scroll + visible).min(total);
         (scroll, end)
     }
+
+    /// Replace shared/local configs and rebuild Miller columns for the active profile.
+    /// Used after operations (e.g. sync) that may have mutated roost.toml on disk.
+    pub fn reload_configs(&mut self, shared: SharedAppConfig, local: LocalAppConfig) {
+        self.shared = shared;
+        self.local = local;
+        let profile_dir = crate::app::profile_dir(&self.roost_dir, &self.local.active_profile);
+        self.miller = MillerColumns::new(&profile_dir);
+        self.app_cursor = self.app_cursor.min(self.app_count().saturating_sub(1));
+        self.sync_miller_to_selected_app();
+    }
 }

@@ -26,6 +26,7 @@ use ratatui::{
 
 use crate::app::{self, LocalAppConfig, SharedAppConfig};
 use crate::git;
+use crate::linker;
 use crate::pager;
 use crate::tui::main_view::event::{handle_event, Action};
 use crate::tui::main_view::ui::render;
@@ -147,12 +148,15 @@ fn run_loop(
 
                     let actions = handle_event(&mut state, key);
                     for action in actions {
-                        process_action(&mut state, action)?;
+                        if let Err(e) = process_action(&mut state, action) {
+                            state.status_message = Some(format!("Error: {}", e));
+                        }
                     }
 
-                    // Batched auto-commit after each event iteration.
                     if let Some(msg) = state.pending_auto_commit.take() {
-                        let _ = git::save(&state.roost_dir, &msg);
+                        if let Err(e) = git::save(&state.roost_dir, &msg) {
+                            state.status_message = Some(format!("Auto-commit failed: {}", e));
+                        }
                     }
                 }
                 Event::Resize(_, _) => {
@@ -214,12 +218,33 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
         }
         Action::Sync => {
             let roost_dir = state.roost_dir.clone();
+            let commit_msg = match git::diff_stat(&roost_dir) {
+                Ok(stat) if !stat.is_empty() => format!("save: {}", stat),
+                _ => "save: sync pending changes".to_string(),
+            };
             let result = suspend_and_run(|| {
-                git::save(&roost_dir, "Auto-commit before sync")?;
+                git::save(&roost_dir, &commit_msg)?;
                 let sync_result = git::sync(&roost_dir, crate::git::ConflictPreference::Local)?;
                 Ok(sync_result)
             });
             state.needs_redraw = true;
+            let mut link_actions: Vec<String> = Vec::new();
+            match result {
+                Ok(crate::git::SyncResult::Clean)
+                | Ok(crate::git::SyncResult::ConfigConflict { .. })
+                | Ok(crate::git::SyncResult::FileConflict { .. }) => {
+                    // Reload configs from disk since sync may have mutated roost.toml
+                    let shared_path = app::shared_config_path(&state.roost_dir);
+                    let local_path = app::local_config_path(&state.roost_dir);
+                    if let (Ok(shared), Ok(local)) = (app::load_shared(&shared_path), app::load_local(&local_path)) {
+                        if let Ok(actions) = linker::ensure_links(&shared, &local, &state.roost_dir) {
+                            link_actions = actions;
+                        }
+                        state.reload_configs(shared, local);
+                    }
+                }
+                Err(_) => {}
+            }
             match result {
                 Ok(crate::git::SyncResult::Clean) => {
                     state.status_message = Some("Sync complete. Pushed to origin.".to_string());
@@ -238,6 +263,13 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 Err(e) => {
                     state.status_message = Some(format!("Sync error: {}", e));
                 }
+            }
+            if !link_actions.is_empty() {
+                let summary = format!("{} app(s) linked after sync.", link_actions.len());
+                state.status_message = Some(match state.status_message {
+                    Some(ref msg) => format!("{} {}", msg, summary),
+                    None => summary,
+                });
             }
         }
         Action::SwitchProfile(name) => {
