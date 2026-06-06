@@ -592,11 +592,23 @@ fn handle_profile(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             profile.cycle_mode();
             vec![Action::Nop]
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
             profile.move_up();
             vec![Action::Nop]
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
+            let max = match mode {
+                ProfileMode::Switch | ProfileMode::Delete => state.shared.profiles.len(),
+                ProfileMode::Create => 0,
+            };
+            profile.move_down(max);
+            vec![Action::Nop]
+        }
+        KeyCode::Char('k') if mode != ProfileMode::Create => {
+            profile.move_up();
+            vec![Action::Nop]
+        }
+        KeyCode::Char('j') if mode != ProfileMode::Create => {
             let max = match mode {
                 ProfileMode::Switch | ProfileMode::Delete => state.shared.profiles.len(),
                 ProfileMode::Create => 0,
@@ -694,15 +706,24 @@ fn handle_ignore(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             ignore.cycle_mode();
             vec![Action::Nop]
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up => {
             ignore.move_up();
             vec![Action::Nop]
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down => {
             let max = match mode {
                 IgnoreMode::Remove => state.shared.ignored.len(),
                 IgnoreMode::Add => 0,
             };
+            ignore.move_down(max);
+            vec![Action::Nop]
+        }
+        KeyCode::Char('k') if mode == IgnoreMode::Remove => {
+            ignore.move_up();
+            vec![Action::Nop]
+        }
+        KeyCode::Char('j') if mode == IgnoreMode::Remove => {
+            let max = state.shared.ignored.len();
             ignore.move_down(max);
             vec![Action::Nop]
         }
