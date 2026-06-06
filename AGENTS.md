@@ -176,6 +176,10 @@ All tasks completed on `release-prep` branch (10 commits beyond base):
 | **Atomic writes** | Concurrency-safe via unique temp filenames (PID + ms timestamp) in `app/mod.rs` and `gitignore.rs` |
 | **Path traversal** | `validate_path_in_home()` helper with 3 unit tests in `linker/mod.rs` |
 | **App name sanitization** | `sanitize_app_name()` replaces `/`, `\`, `\0` with `_`; applied in `cmd_add`, `init.rs`, TUI add-app |
+| **Profile deletion confirm** | y/n confirm before deleting profile; fixed render z-order so confirm shows on top |
+| **Panic hook / Ctrl-C** | Consolidated into `tui::init()` with `OnceLock`, 3 call sites unified |
+| **Ignore pattern confirm** | y/n confirm before removing ignore pattern |
+| **j/k in text input** | `j`/`k` no longer consumed for navigation in ignore Add and profile Create modes |
 
 ### Known Issues / Fragile Areas
 
@@ -203,14 +207,15 @@ All tasks completed on `release-prep` branch (10 commits beyond base):
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1 | **Profile deletion confirm** | ⬜ | No y/n confirm before deleting profile |
-| 2 | **Panic hook leak** | ⬜ | `set_hook` called on every TUI start without check; panics on re-entry |
-| 3 | **Ctrl-C handler leak** | ⬜ | `ctrlc::set_handler` called on every TUI start without check; panics on re-entry |
-| 4 | **Terminal::size() failure** | ⬜ | TUI init should handle `terminal.size()` errors gracefully |
-| 5 | **README** | ⬜ | Needs install, usage, config docs |
-| 6 | **LICENSE** | ⬜ | Needs license file |
-| 7 | **Cargo.toml metadata** | ⬜ | description, authors, repository, keywords, categories |
-| 8 | **CHANGELOG** | ⬜ | Document v0.2.0 changes since v0.1.0 |
+| 1 | **Profile deletion confirm** | ✅ | y/n confirm before deleting profile |
+| 2 | **Panic hook leak** | ✅ | Consolidated into `tui::init()` via `OnceLock` |
+| 3 | **Ctrl-C handler leak** | ✅ | Same — consolidated into `tui::init()` |
+| 4 | **Ignore pattern removal confirm** | ✅ | y/n confirm before removing pattern |
+| 5 | **j/k typing in dialogs** | ✅ | `j`/`k` no longer consumed for nav in text input modes |
+| 6 | **README** | ⬜ | Needs install, usage, config docs |
+| 7 | **LICENSE** | ⬜ | Needs license file |
+| 8 | **Cargo.toml metadata** | ⬜ | description, authors, repository, keywords, categories |
+| 9 | **CHANGELOG** | ⬜ | Document v0.2.0 changes since v0.1.0 |
 
 ### Quality Improvements (Should Fix)
 
