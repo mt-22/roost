@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::path::PathBuf;
 
 use crate::tui::confirm::{ConfirmAction, ConfirmDialog};
@@ -42,6 +42,11 @@ pub enum Action {
 pub fn handle_event(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
     if key.kind != KeyEventKind::Press {
         return vec![Action::Nop];
+    }
+
+    // Ctrl+C should always quit safely, even in raw mode where it arrives as a key event.
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+        return vec![Action::Quit];
     }
 
     // 1. Confirm dialog has highest priority.

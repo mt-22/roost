@@ -7,7 +7,7 @@ use std::{
 
 use color_eyre::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
@@ -359,6 +359,11 @@ fn run_app(
         {
             if key.kind != KeyEventKind::Press {
                 continue;
+            }
+
+            // Ctrl+C should always abort, even in raw mode where it arrives as a key event.
+            if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+                return Err(color_eyre::eyre::eyre!("aborted"));
             }
 
             // Check if a confirmation dialog is active
