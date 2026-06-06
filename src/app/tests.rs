@@ -246,7 +246,6 @@ fn tilde_serde_round_trip() {
 
 #[test]
 fn tilde_serde_deserializes_non_home_path_unchanged() {
-    let home = dirs::home_dir().expect("need home dir for test");
     let toml = format!(
         r#"
         [apps.nvim]
