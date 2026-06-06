@@ -6,7 +6,7 @@ license = "MIT"
 description = "A TUI-first, Rust-based dotfiles manager with git-sync"
 authors = ["Marshall Taylor"]
 repository = "https://github.com/mt-22/roost"
-keywords = ["dotfiles", "dotfile-manager", "tui", "rust", "git", "configuration"]
+keywords = ["dotfiles", "dotfile-manager", "tui", "cli", "config"]
 categories = ["command-line-utilities", "development-tools", "filesystem"]
 
 [dependencies]
