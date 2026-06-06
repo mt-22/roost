@@ -638,7 +638,10 @@ pub fn rollback(roost_dir: &Path, hash: &str) -> Result<()> {
 }
 
 pub fn set_remote(roost_dir: &Path, url: &str) -> Result<()> {
-    run_git(roost_dir, &["remote", "add", "origin", url])?;
+    match get_remote(roost_dir)? {
+        Some(_) => run_git(roost_dir, &["remote", "set-url", "origin", url])?,
+        None => run_git(roost_dir, &["remote", "add", "origin", url])?,
+    };
     Ok(())
 }
 
