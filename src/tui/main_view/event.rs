@@ -744,8 +744,12 @@ fn handle_ignore(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                     };
                     if let Some(pat) = patterns.get(ignore.cursor) {
                         let pat = pat.to_string();
-                        state.ignore_dialog = None;
-                        return vec![Action::RemoveIgnore(pat)];
+                        state.confirm_dialog = Some(ConfirmDialog::destructive(
+                            "Remove Ignore Pattern",
+                            format!("Remove ignore pattern '{}'?", pat),
+                        ));
+                        state.pending_action = Some(Action::RemoveIgnore(pat));
+                        return vec![Action::Nop];
                     }
                 }
             }

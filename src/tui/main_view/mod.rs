@@ -591,6 +591,7 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 &state.shared.ignored,
                 &state.shared.apps,
             );
+            state.ignore_dialog = None;
             state.status_message = Some(format!("Removed ignore pattern '{}'", pattern));
         }
         Action::Undo => {
