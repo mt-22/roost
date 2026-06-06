@@ -194,6 +194,18 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Check whether the remote has a `main` branch (i.e. `origin/main` exists).
+fn has_remote_main(roost_dir: &Path) -> bool {
+    let git_dir = roost_dir.join(".git");
+    let output = Command::new("git")
+        .current_dir(roost_dir)
+        .arg(format!("--git-dir={}", git_dir.display()))
+        .arg(format!("--work-tree={}", roost_dir.display()))
+        .args(["rev-parse", "--verify", "origin/main"])
+        .output();
+    matches!(output, Ok(o) if o.status.success())
+}
+
 pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResult> {
     if get_remote(roost_dir)?.is_none() {
         bail!("no remote configured");
@@ -204,6 +216,12 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
     }
 
     run_git(roost_dir, &["fetch", "origin"])?;
+
+    if !has_remote_main(roost_dir) {
+        // Remote has no main branch yet — this is the first push.
+        run_git(roost_dir, &["push", "-u", "origin", "main"])?;
+        return Ok(SyncResult::Clean);
+    }
 
     let local_head = run_git(roost_dir, &["rev-parse", "HEAD"])?;
     let remote_head = run_git(roost_dir, &["rev-parse", "origin/main"])?;
