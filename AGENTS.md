@@ -182,6 +182,7 @@ All tasks completed on `release-prep` branch (10 commits beyond base):
 | **Ignore pattern confirm** | y/n confirm before removing ignore pattern |
 | **j/k in text input** | `j`/`k` no longer consumed for navigation in ignore Add and profile Create modes |
 | **Rooster pecking animation** | Replaced algorithmic shift with hardcoded `ROOSTER_PECK` pixel grid for natural head-tilt bend |
+| **Single-file app miller view** | `sync_miller_to_selected_app()` now uses `misc/` path and `set_filter` for single-file apps; `clear_search()` only clears filter when search was active |
 
 ### Known Issues / Fragile Areas
 
