@@ -295,14 +295,8 @@ pub fn run_selection_tui(
     should_exit: &AtomicBool,
     auto_select: bool,
 ) -> Result<TuiResult> {
+    crate::tui::init();
     let mut terminal = setup_terminal()?;
-
-    let original_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = crossterm::execute!(std::io::stdout(), LeaveAlternateScreen);
-        let _ = disable_raw_mode();
-        original_hook(info);
-    }));
 
     let result = run_app(&mut terminal, scan_items, root_path, should_exit, auto_select);
 

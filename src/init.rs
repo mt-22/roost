@@ -1,7 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use color_eyre::Result;
 use dialoguer::{Confirm, Input, MultiSelect, Select, console::style, theme::ColorfulTheme};
@@ -136,13 +134,9 @@ pub fn run_wizard() -> Result<()> {
     let sources = scanner::default_scan_sources(&home);
     let all_items = scanner::scan_sources(&sources, &ignored_set);
 
-    let should_exit = Arc::new(AtomicBool::new(false));
-    let should_exit_clone = Arc::clone(&should_exit);
-    ctrlc::set_handler(move || {
-        should_exit_clone.store(true, Ordering::SeqCst);
-    })?;
+    crate::tui::init();
 
-    let selected = match app_selector::run_selection_tui(all_items, &home, &should_exit, true)? {
+    let selected = match app_selector::run_selection_tui(all_items, &home, &crate::tui::SHOULD_EXIT, true)? {
         app_selector::TuiResult::Selected(items) => items,
         app_selector::TuiResult::Aborted => {
             println!("{}", style("Aborted. No changes made.").yellow());

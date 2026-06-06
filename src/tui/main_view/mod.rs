@@ -8,7 +8,7 @@ pub use state::MainViewState;
 use std::collections::HashSet;
 use std::io::{self, Stdout};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 
 use color_eyre::Result;
 use crossterm::event::{Event, KeyEventKind, poll as crossterm_poll, read as crossterm_read};
@@ -32,8 +32,6 @@ use crate::tui::main_view::event::{Action, handle_event};
 use crate::tui::main_view::ui::render;
 use crate::tui::suspend::suspend_and_run;
 
-static SHOULD_EXIT: AtomicBool = AtomicBool::new(false);
-
 /// Minimum terminal dimensions for the main TUI.
 /// Below these, a "terminal too small" placeholder is shown instead.
 const MIN_WIDTH: u16 = 40;
@@ -44,20 +42,9 @@ const MIN_HEIGHT: u16 = 12;
 /// Sets up the terminal, runs the event loop, processes actions, and restores
 /// the terminal on exit.
 pub fn run(roost_dir: PathBuf, shared: SharedAppConfig, local: LocalAppConfig) -> Result<()> {
+    crate::tui::init();
+    crate::tui::SHOULD_EXIT.store(false, Ordering::SeqCst);
     let mut terminal = setup_terminal()?;
-
-    let original_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = crossterm::execute!(io::stdout(), LeaveAlternateScreen);
-        let _ = disable_raw_mode();
-        original_hook(info);
-    }));
-
-    SHOULD_EXIT.store(false, Ordering::SeqCst);
-
-    ctrlc::set_handler(|| {
-        SHOULD_EXIT.store(true, Ordering::SeqCst);
-    })?;
 
     run_loop(&mut terminal, roost_dir, shared, local);
 
@@ -128,7 +115,7 @@ fn run_loop(
             });
         }
 
-        if SHOULD_EXIT.load(Ordering::Relaxed) {
+        if crate::tui::SHOULD_EXIT.load(Ordering::Relaxed) {
             state.quit = true;
         }
 
@@ -479,7 +466,7 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 match crate::app_selector::run_selection_tui(
                     scan_items,
                     &home,
-                    &SHOULD_EXIT,
+                    &crate::tui::SHOULD_EXIT,
                     false,
                 )? {
                     crate::app_selector::TuiResult::Selected(items) => Ok(items),
