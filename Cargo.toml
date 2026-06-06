@@ -1,5 +1,5 @@
 [package]
-name = "roost"
+name = "roost-dot"
 version = "0.2.0"
 edition = "2024"
 license = "MIT"
@@ -8,6 +8,14 @@ authors = ["Marshall Taylor"]
 repository = "https://github.com/mt-22/roost"
 keywords = ["dotfiles", "dotfile-manager", "tui", "cli", "config"]
 categories = ["command-line-utilities", "development-tools", "filesystem"]
+
+[lib]
+name = "roost"
+path = "src/lib.rs"
+
+[[bin]]
+name = "roost"
+path = "src/main.rs"
 
 [dependencies]
 ratatui = "0.30"
