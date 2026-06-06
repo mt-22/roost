@@ -337,9 +337,16 @@ impl MainViewState {
     }
 
     /// Clear any active search filter.
+    ///
+    /// Only clears the Miller filter when the search was targeting Files.
+    /// When searching Apps, the Miller filter may be a single-file app
+    /// filter (e.g. showing only `zshrc` inside `misc/`) and must not
+    /// be destroyed when the search overlay is dismissed.
     pub fn clear_search(&mut self) {
-        if self.search.take().is_some() {
-            self.miller.clear_filter();
+        if let Some(search) = self.search.take() {
+            if search.target == SearchTarget::Files {
+                self.miller.clear_filter();
+            }
         }
     }
 }
