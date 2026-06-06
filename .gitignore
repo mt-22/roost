@@ -1,1 +1,23 @@
 /target
+*.log
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Swap files
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+
+# Development artifacts / planning
+superpowers/
+.superpowers/
+plans/
+.plans/
