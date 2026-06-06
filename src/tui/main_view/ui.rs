@@ -30,9 +30,6 @@ pub fn render(state: &mut MainViewState, frame: &mut Frame) {
             render_search_overlay(state, frame, search);
         }
     }
-    if let Some(ref dialog) = state.confirm_dialog {
-        render_confirm_dialog(frame, dialog);
-    }
     if let Some(ref help) = state.help_dialog {
         render_help_dialog(frame, help);
     }
@@ -53,6 +50,10 @@ pub fn render(state: &mut MainViewState, frame: &mut Frame) {
     }
     if let Some(ref diff) = state.diff_view {
         render_diff_view_dialog(frame, diff);
+    }
+    // Confirm dialog rendered last so it always appears on top of other overlays
+    if let Some(ref dialog) = state.confirm_dialog {
+        render_confirm_dialog(frame, dialog);
     }
 }
 
