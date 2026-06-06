@@ -113,7 +113,11 @@ fn rollback_to_specific_hash() {
         .output()
         .unwrap();
     let msg = String::from_utf8_lossy(&log.stdout);
-    assert!(msg.contains("rollback to"), "expected rollback commit, got: {}", msg);
+    assert!(
+        msg.contains("rollback to"),
+        "expected rollback commit, got: {}",
+        msg
+    );
 }
 
 #[test]
@@ -250,7 +254,10 @@ appB = "/home/user/.config/appB"
 
     // Verify: appB is still in config (preserved)
     let new_config = fs::read_to_string(roost_dir.join("roost.toml"))?;
-    assert!(new_config.contains("appB"), "appB should be preserved in config");
+    assert!(
+        new_config.contains("appB"),
+        "appB should be preserved in config"
+    );
 
     // Verify: appB files still exist on disk
     assert!(
@@ -260,7 +267,11 @@ appB = "/home/user/.config/appB"
 
     // Verify: appA file is rolled back to original
     let app_a_content = fs::read_to_string(roost_dir.join("default/appA/file1.txt"))?;
-    assert_eq!(app_a_content.trim(), "original", "appA should be rolled back");
+    assert_eq!(
+        app_a_content.trim(),
+        "original",
+        "appA should be rolled back"
+    );
 
     Ok(())
 }

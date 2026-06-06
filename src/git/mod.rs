@@ -111,17 +111,23 @@ pub fn diff_stat(roost_dir: &Path) -> Result<String> {
 }
 
 fn parse_git_stat(output: &str) -> String {
-    let lines: Vec<&str> = output.lines().filter(|l| !l.contains("files changed")).collect();
+    let lines: Vec<&str> = output
+        .lines()
+        .filter(|l| !l.contains("files changed"))
+        .collect();
     let parts: Vec<String> = lines
         .iter()
         .filter_map(|line| {
             let file = line.split_whitespace().next()?;
-            let additions = line.split('+').nth(1).and_then(|s| {
-                s.split_whitespace().next()?.parse::<u32>().ok()
-            });
+            let additions = line
+                .split('+')
+                .nth(1)
+                .and_then(|s| s.split_whitespace().next()?.parse::<u32>().ok());
             let deletions = if line.contains('-') {
                 let parts: Vec<&str> = line.split('-').collect();
-                parts.get(1).and_then(|s| s.split_whitespace().next()?.parse::<u32>().ok())
+                parts
+                    .get(1)
+                    .and_then(|s| s.split_whitespace().next()?.parse::<u32>().ok())
             } else {
                 None
             };
@@ -134,7 +140,11 @@ fn parse_git_stat(output: &str) -> String {
         .take(5)
         .collect();
     if parts.is_empty() {
-        output.lines().last().map(|s| s.to_string()).unwrap_or_default()
+        output
+            .lines()
+            .last()
+            .map(|s| s.to_string())
+            .unwrap_or_default()
     } else {
         parts.join(", ")
     }
@@ -319,10 +329,8 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
                     // Union: keep local, add any new remote apps
                     for app in &remote_profile.apps {
                         if local_profile.apps.insert(app.clone()) {
-                            config_conflicts.push(format!(
-                                "profiles.{}.apps added: '{}' (remote)",
-                                name, app
-                            ));
+                            config_conflicts
+                                .push(format!("profiles.{}.apps added: '{}' (remote)", name, app));
                         }
                     }
                     for (app_name, source) in &remote_profile.app_sources {

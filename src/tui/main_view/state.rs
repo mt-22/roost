@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use crate::app::{LocalAppConfig, SharedAppConfig};
 use crate::miller::MillerColumns;
 use crate::tui::confirm::ConfirmDialog;
-use crate::tui::main_view::dialogs::{AppLinkState, DiffViewState, GitLogState, HelpState, IgnoreState, ProfileState, UndoState};
+use crate::tui::main_view::dialogs::{
+    AppLinkState, DiffViewState, GitLogState, HelpState, IgnoreState, ProfileState, UndoState,
+};
+use crate::tui::rooster::RoosterState;
 use crate::tui::search::FuzzyEngine;
 
 /// Which panel currently receives keyboard input.
@@ -52,6 +55,9 @@ pub struct MainViewState {
     pub pending_action: Option<crate::tui::main_view::event::Action>,
     pub needs_redraw: bool,
     pub quit: bool,
+
+    // Rooster animation
+    pub rooster: RoosterState,
 }
 
 /// Active fuzzy-search overlay.
@@ -71,8 +77,6 @@ pub enum SearchTarget {
 // ------------------------------------------------------------------
 // Placeholder dialog states — fleshed out in Stream 3 (Dialog System)
 // ------------------------------------------------------------------
-
-
 
 impl MainViewState {
     /// Build initial state. The Miller columns start at the active profile root.
@@ -102,6 +106,7 @@ impl MainViewState {
             pending_action: None,
             needs_redraw: false,
             quit: false,
+            rooster: RoosterState::new(),
         };
 
         state.sync_miller_to_selected_app();
@@ -167,19 +172,26 @@ impl MainViewState {
     /// For cross-profile linked apps this points at the source profile's copy.
     /// If the app has a primary_config, navigates to it and highlights it.
     pub fn sync_miller_to_selected_app(&mut self) {
-        let Some(app_name) = self.selected_app().cloned() else { return; };
+        let Some(app_name) = self.selected_app().cloned() else {
+            return;
+        };
         let app_dir = if let Some(source) = self.selected_app_source() {
             crate::app::profile_dir(&self.roost_dir, source).join(&app_name)
         } else {
-            crate::app::profile_dir(&self.roost_dir, &self.local.active_profile)
-                .join(&app_name)
+            crate::app::profile_dir(&self.roost_dir, &self.local.active_profile).join(&app_name)
         };
         self.miller.set_root(&app_dir);
 
         // Set primary config highlight and navigate cursor to it
-        if let Some(primary) = self.shared.apps.get(&app_name).and_then(|a| a.primary_config.clone()) {
+        if let Some(primary) = self
+            .shared
+            .apps
+            .get(&app_name)
+            .and_then(|a| a.primary_config.clone())
+        {
             // Convert original path to internal roost path for miller comparison
-            let internal_primary = if let Some(original_base) = self.local.link_paths.get(&app_name) {
+            let internal_primary = if let Some(original_base) = self.local.link_paths.get(&app_name)
+            {
                 if primary.starts_with(original_base) {
                     if let Ok(rel) = primary.strip_prefix(original_base) {
                         app_dir.join(rel)
@@ -192,12 +204,17 @@ impl MainViewState {
             } else {
                 primary.clone()
             };
-            self.miller.set_primary_config(Some(internal_primary.clone()));
+            self.miller
+                .set_primary_config(Some(internal_primary.clone()));
 
             // Navigate to the primary config if it's within subdirectories
             if internal_primary.starts_with(&app_dir) {
                 if let Ok(rel) = internal_primary.strip_prefix(&app_dir) {
-                    for component in rel.parent().unwrap_or(std::path::Path::new("")).components() {
+                    for component in rel
+                        .parent()
+                        .unwrap_or(std::path::Path::new(""))
+                        .components()
+                    {
                         let comp_str = component.as_os_str().to_string_lossy();
                         let entries = self.miller.current_entries();
                         if let Some(idx) = entries.iter().position(|e| {
@@ -209,9 +226,15 @@ impl MainViewState {
                         }
                     }
                     // Finally, focus on the file itself
-                    let file_name = rel.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+                    let file_name = rel
+                        .file_name()
+                        .map(|n| n.to_string_lossy())
+                        .unwrap_or_default();
                     let entries = self.miller.current_entries();
-                    if let Some(idx) = entries.iter().position(|e| e.file_name().to_string_lossy() == file_name) {
+                    if let Some(idx) = entries
+                        .iter()
+                        .position(|e| e.file_name().to_string_lossy() == file_name)
+                    {
                         self.miller.set_current_cursor(idx);
                     }
                 }

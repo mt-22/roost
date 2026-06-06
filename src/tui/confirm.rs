@@ -81,7 +81,9 @@ pub fn render_confirm_dialog(frame: &mut ratatui::Frame, dialog: &ConfirmDialog)
         })
         .sum::<usize>()
         .max(1);
-    let height = (lines_needed as u16 + 5).min(area.height.saturating_sub(4)).max(6);
+    let height = (lines_needed as u16 + 5)
+        .min(area.height.saturating_sub(4))
+        .max(6);
 
     let popup_x = (area.width.saturating_sub(width)) / 2;
     let popup_y = (area.height.saturating_sub(height)) / 2;
@@ -96,16 +98,17 @@ pub fn render_confirm_dialog(frame: &mut ratatui::Frame, dialog: &ConfirmDialog)
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
 
-    let chunks = Layout::vertical([
-        Constraint::Min(1),
-        Constraint::Length(1),
-    ])
-    .split(inner);
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
 
     let message_lines: Vec<Line> = dialog
         .message
         .lines()
-        .map(|line| Line::from(Span::styled(line.to_string(), Style::default().fg(Color::White))))
+        .map(|line| {
+            Line::from(Span::styled(
+                line.to_string(),
+                Style::default().fg(Color::White),
+            ))
+        })
         .collect();
     let message_para = Paragraph::new(message_lines).wrap(Wrap { trim: true });
     frame.render_widget(message_para, chunks[0]);

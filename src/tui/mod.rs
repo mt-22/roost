@@ -1,5 +1,6 @@
 pub mod confirm;
 pub mod main_view;
+pub mod rooster;
 pub mod search;
 pub mod suspend;
 

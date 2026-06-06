@@ -52,7 +52,9 @@ pub fn run_wizard() -> Result<()> {
     if existing_shared && !existing_local {
         println!(
             "{}",
-            style("Existing shared config found. Reconstructing local state...").cyan().bold()
+            style("Existing shared config found. Reconstructing local state...")
+                .cyan()
+                .bold()
         );
         return reconstruct_local(&roost_dir, shared_path.clone(), local_path.clone());
     }
@@ -136,13 +138,14 @@ pub fn run_wizard() -> Result<()> {
 
     crate::tui::init();
 
-    let selected = match app_selector::run_selection_tui(all_items, &home, &crate::tui::SHOULD_EXIT, true)? {
-        app_selector::TuiResult::Selected(items) => items,
-        app_selector::TuiResult::Aborted => {
-            println!("{}", style("Aborted. No changes made.").yellow());
-            return Ok(());
-        }
-    };
+    let selected =
+        match app_selector::run_selection_tui(all_items, &home, &crate::tui::SHOULD_EXIT, true)? {
+            app_selector::TuiResult::Selected(items) => items,
+            app_selector::TuiResult::Aborted => {
+                println!("{}", style("Aborted. No changes made.").yellow());
+                return Ok(());
+            }
+        };
 
     let mut local = local;
 
@@ -254,7 +257,11 @@ pub fn run_wizard() -> Result<()> {
 }
 
 /// Reconstruct local.toml from an existing roost.toml (e.g. after a fresh clone).
-fn reconstruct_local(roost_dir: &Path, shared_path: std::path::PathBuf, local_path: std::path::PathBuf) -> Result<()> {
+fn reconstruct_local(
+    roost_dir: &Path,
+    shared_path: std::path::PathBuf,
+    local_path: std::path::PathBuf,
+) -> Result<()> {
     let theme = roost_theme();
     let mut config = app::load_shared(&shared_path)?;
 
@@ -309,7 +316,10 @@ fn reconstruct_local(roost_dir: &Path, shared_path: std::path::PathBuf, local_pa
     let pdir = app::profile_dir(roost_dir, &profile_name);
     if let Some(profile) = config.profiles.get(&profile_name) {
         if !profile.apps.is_empty() {
-            println!("{}", style("Discovering original paths for managed apps...").cyan());
+            println!(
+                "{}",
+                style("Discovering original paths for managed apps...").cyan()
+            );
         }
         for app_name in &profile.apps {
             let discovered = discover_app_origin(app_name, &pdir, roost_dir, &config, &home);
@@ -384,7 +394,9 @@ fn discover_app_origin(
         home.join(".config").join(app_name),
         home.join(format!(".{}", app_name)),
         home.join(app_name),
-        home.join("Library").join("Application Support").join(app_name),
+        home.join("Library")
+            .join("Application Support")
+            .join(app_name),
     ];
 
     for candidate in &candidates {

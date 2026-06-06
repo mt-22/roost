@@ -235,7 +235,14 @@ fn scan_sources_keeps_at_threshold() {
     let results = scan_sources(&sources, &ignored);
 
     assert!(results.iter().any(|r| r.name == "settings.toml"));
-    assert_eq!(results.iter().find(|r| r.name == "settings.toml").unwrap().confidence, 80);
+    assert_eq!(
+        results
+            .iter()
+            .find(|r| r.name == "settings.toml")
+            .unwrap()
+            .confidence,
+        80
+    );
 }
 
 #[test]
@@ -251,7 +258,14 @@ fn scan_sources_penalized_items_above_threshold_are_kept() {
     let results = scan_sources(&sources, &ignored);
 
     assert!(results.iter().any(|r| r.name == "nvim"));
-    assert_eq!(results.iter().find(|r| r.name == "nvim").unwrap().confidence, 100);
+    assert_eq!(
+        results
+            .iter()
+            .find(|r| r.name == "nvim")
+            .unwrap()
+            .confidence,
+        100
+    );
 }
 
 #[test]

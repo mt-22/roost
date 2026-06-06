@@ -119,8 +119,8 @@ fn render_apps_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
     }
 
     let visible = inner.height as usize;
-    let is_search_active = state.is_search_active()
-        && state.search_target() == Some(SearchTarget::Apps);
+    let is_search_active =
+        state.is_search_active() && state.search_target() == Some(SearchTarget::Apps);
 
     let (indices, cursor_original_idx, scroll) = if is_search_active {
         if let Some(ref search) = state.search {
@@ -235,6 +235,9 @@ fn render_files_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) 
     if vertical[1].width == 0 || vertical[1].height == 0 {
         return;
     }
+
+    state.rooster.tick();
+    state.miller.rooster_is_pecking = state.rooster.is_pecking;
 
     frame.render_widget(&state.miller, vertical[1]);
 }

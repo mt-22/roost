@@ -1,6 +1,6 @@
 use crate::os_detect::OsInfo;
 use color_eyre::Result;
-use serde::{Deserialize, Serialize, Serializer, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
@@ -223,14 +223,15 @@ pub fn validate_shared(config: &SharedAppConfig) -> Result<()> {
             // Detect direct cycle: A sources from B, and B sources A back
             if let Some(source) = config.profiles.get(source_profile)
                 && let Some(back_ref) = source.app_sources.get(app_name)
-                    && back_ref == profile_name {
-                        color_eyre::eyre::bail!(
-                            "cycle detected: app '{}' between profiles '{}' and '{}'",
-                            app_name,
-                            profile_name,
-                            source_profile
-                        );
-                    }
+                && back_ref == profile_name
+            {
+                color_eyre::eyre::bail!(
+                    "cycle detected: app '{}' between profiles '{}' and '{}'",
+                    app_name,
+                    profile_name,
+                    source_profile
+                );
+            }
         }
     }
     // Check that on_profiles in apps reference real profiles

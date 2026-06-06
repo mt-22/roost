@@ -183,10 +183,7 @@ mod tests {
     fn includes_per_app_patterns() {
         let tmp = tempfile::tempdir().unwrap();
         let mut apps = BTreeMap::new();
-        apps.insert(
-            "sketchybar".to_string(),
-            make_app(vec!["clipboard*"], true),
-        );
+        apps.insert("sketchybar".to_string(), make_app(vec!["clipboard*"], true));
         let globals = BTreeSet::new();
         regenerate(tmp.path(), &globals, &apps).unwrap();
 
@@ -212,9 +209,7 @@ mod tests {
     #[test]
     fn preserves_user_rules() {
         let tmp = tempfile::tempdir().unwrap();
-        let existing = format!(
-            "{HEADER}\nlocal.toml\n{FOOTER}\n\n# my custom rule\nsecrets.txt\n"
-        );
+        let existing = format!("{HEADER}\nlocal.toml\n{FOOTER}\n\n# my custom rule\nsecrets.txt\n");
         fs::write(tmp.path().join(".gitignore"), &existing).unwrap();
 
         let mut globals = BTreeSet::new();

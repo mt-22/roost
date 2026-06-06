@@ -298,7 +298,13 @@ pub fn run_selection_tui(
     crate::tui::init();
     let mut terminal = setup_terminal()?;
 
-    let result = run_app(&mut terminal, scan_items, root_path, should_exit, auto_select);
+    let result = run_app(
+        &mut terminal,
+        scan_items,
+        root_path,
+        should_exit,
+        auto_select,
+    );
 
     restore_terminal(&mut terminal)?;
 
@@ -784,7 +790,9 @@ fn render_help_overlay(frame: &mut ratatui::Frame, app: &App) {
             Line::from(vec![
                 Span::styled(
                     format!("{:<10}", key),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(*desc, Style::default().fg(Color::White)),
             ])

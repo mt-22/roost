@@ -177,7 +177,13 @@ fn cmd_save(message: Option<String>) -> Result<()> {
         m
     } else {
         git::diff_stat(&roost_dir)
-            .map(|s| if s.is_empty() { "save: manual save".to_string() } else { format!("save: {}", s) })
+            .map(|s| {
+                if s.is_empty() {
+                    "save: manual save".to_string()
+                } else {
+                    format!("save: {}", s)
+                }
+            })
             .unwrap_or_else(|_| "save: manual save".to_string())
     };
     git::save(&roost_dir, &msg)?;
@@ -426,9 +432,15 @@ fn cmd_sync() -> Result<()> {
     let _ = app::save_local(&local_path, &local);
 
     match result {
-        git::SyncResult::Clean => println!("{}", style("Sync complete. Changes pushed to origin.").green()),
+        git::SyncResult::Clean => println!(
+            "{}",
+            style("Sync complete. Changes pushed to origin.").green()
+        ),
         git::SyncResult::ConfigConflict { resolved } => {
-            println!("{}", style("Sync complete. Config conflicts resolved and pushed to origin.").yellow());
+            println!(
+                "{}",
+                style("Sync complete. Config conflicts resolved and pushed to origin.").yellow()
+            );
             for name in &resolved {
                 println!("  - {}", style(name).yellow().dim());
             }
@@ -436,7 +448,8 @@ fn cmd_sync() -> Result<()> {
         git::SyncResult::FileConflict { .. } => {
             println!(
                 "{}",
-                style("Sync complete with file conflicts. Manual resolution may be required.").yellow()
+                style("Sync complete with file conflicts. Manual resolution may be required.")
+                    .yellow()
             );
         }
     }

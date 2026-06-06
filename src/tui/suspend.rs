@@ -1,7 +1,9 @@
 use std::io;
 
 use color_eyre::Result;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
 
 /// Leave the alternate screen, disable raw mode, run a closure, then restore
 /// the TUI terminal state.
@@ -69,9 +71,8 @@ mod tests {
 
     #[test]
     fn suspend_and_run_propagates_error() {
-        let result: Result<i32> = suspend_and_run(|| {
-            Err(color_eyre::eyre::eyre!("intentional error"))
-        });
+        let result: Result<i32> =
+            suspend_and_run(|| Err(color_eyre::eyre::eyre!("intentional error")));
         assert!(result.is_err());
     }
 }

@@ -178,7 +178,10 @@ apps = ["zsh", "nvim"]
 
     let config = super::read_shared_at(tmp.path(), &hash1).unwrap();
     assert!(config.apps.contains_key("zsh"));
-    assert!(!config.apps.contains_key("nvim"), "nvim should not exist at hash1");
+    assert!(
+        !config.apps.contains_key("nvim"),
+        "nvim should not exist at hash1"
+    );
     assert_eq!(config.profiles.get("default").unwrap().apps.len(), 1);
 }
 
@@ -239,35 +242,50 @@ apps = ["appA", "appB"]
     let pre_shared = crate::app::load_shared(&crate::app::shared_config_path(tmp.path())).unwrap();
     let pre_local = crate::app::LocalAppConfig {
         active_profile: profile.to_string(),
-        os_info: crate::os_detect::OsInfo { os: "test".to_string(), arch: "test".to_string() },
+        os_info: crate::os_detect::OsInfo {
+            os: "test".to_string(),
+            arch: "test".to_string(),
+        },
         link_paths: [
             ("appA".to_string(), PathBuf::from("/home/user/.config/appA")),
             ("appB".to_string(), PathBuf::from("/home/user/.config/appB")),
-        ].into(),
+        ]
+        .into(),
     };
 
-    let result = super::safe_rollback(
-        tmp.path(),
-        &target_hash,
-        &pre_shared,
-        &pre_local,
-        profile,
-    );
+    let result = super::safe_rollback(tmp.path(), &target_hash, &pre_shared, &pre_local, profile);
     assert!(result.is_ok(), "safe_rollback failed: {:?}", result.err());
 
     // Reload the config saved by safe_rollback
     let new_shared = crate::app::load_shared(&crate::app::shared_config_path(tmp.path())).unwrap();
 
     // appB should still be in the config (preserved)
-    assert!(new_shared.apps.contains_key("appB"), "appB should be preserved in config");
-    assert!(new_shared.profiles.get("default").unwrap().apps.contains("appB"));
+    assert!(
+        new_shared.apps.contains_key("appB"),
+        "appB should be preserved in config"
+    );
+    assert!(
+        new_shared
+            .profiles
+            .get("default")
+            .unwrap()
+            .apps
+            .contains("appB")
+    );
 
     // appB's managed files should still exist
-    assert!(tmp.path().join("default/appB/file2.txt").exists(), "appB files should exist on disk");
+    assert!(
+        tmp.path().join("default/appB/file2.txt").exists(),
+        "appB files should exist on disk"
+    );
 
     // appA's managed files should be rolled back to original
     let app_a_content = fs::read_to_string(tmp.path().join("default/appA/file1.txt")).unwrap();
-    assert_eq!(app_a_content.trim(), "original", "appA should be rolled back to original state");
+    assert_eq!(
+        app_a_content.trim(),
+        "original",
+        "appA should be rolled back to original state"
+    );
 
     // appA should still be in the config
     assert!(new_shared.apps.contains_key("appA"));

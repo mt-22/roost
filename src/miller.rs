@@ -11,6 +11,8 @@ use ratatui::{
     widgets::{Block, Borders, Widget},
 };
 
+use crate::tui::rooster::render_rooster_braille;
+
 pub struct MillerColumn {
     pub path: PathBuf,
     pub entries: Vec<DirEntry>,
@@ -56,6 +58,7 @@ pub struct MillerColumns {
     /// Path to the primary config file for the currently selected app.
     /// If set, the matching entry is highlighted with a `★` marker.
     primary_config: Option<PathBuf>,
+    pub rooster_is_pecking: bool,
 }
 
 impl MillerColumns {
@@ -69,6 +72,7 @@ impl MillerColumns {
             filtered_indices: None,
             filtered_cursor: 0,
             primary_config: None,
+            rooster_is_pecking: false,
         }
     }
 
@@ -269,8 +273,7 @@ impl Widget for &MillerColumns {
         let stacked = area.width < VERY_NARROW_WIDTH;
 
         let chunks = if stacked {
-            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(area)
+            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area)
         } else if three_column {
             Layout::horizontal([
                 Constraint::Percentage(33),
@@ -279,8 +282,7 @@ impl Widget for &MillerColumns {
             ])
             .split(area)
         } else {
-            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(area)
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area)
         };
 
         let current_idx = self.columns.len() - 1;
@@ -381,6 +383,20 @@ impl Widget for &MillerColumns {
             }
         } else {
             render_empty(buf, preview_chunk);
+        }
+
+        // Rooster at top-right of the rightmost/ topmost column
+        let rooster_col = if stacked { chunks[0] } else { preview_chunk };
+        let rw = 10u16.min(rooster_col.width);
+        let rh = 3u16.min(rooster_col.height);
+        if rw > 0 && rh > 0 {
+            let rooster_area = Rect::new(
+                rooster_col.x + rooster_col.width.saturating_sub(rw),
+                rooster_col.y.saturating_sub(2),
+                rw,
+                rh,
+            );
+            render_rooster_braille(buf, rooster_area, self.rooster_is_pecking);
         }
     }
 }
@@ -721,7 +737,10 @@ mod tests {
 
         let mut mc = MillerColumns::new(dir.path());
         mc.move_down();
-        assert_eq!(mc.current_cursor_path().unwrap(), dir.path().join("file.txt"));
+        assert_eq!(
+            mc.current_cursor_path().unwrap(),
+            dir.path().join("file.txt")
+        );
         assert!(!mc.current_cursor_is_dir());
     }
 

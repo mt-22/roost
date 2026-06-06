@@ -227,7 +227,8 @@ fn apply_search_filter(state: &mut MainViewState) {
 
     match target {
         SearchTarget::Apps => {
-            let names: Vec<String> = state.apps_in_active_profile()
+            let names: Vec<String> = state
+                .apps_in_active_profile()
                 .into_iter()
                 .cloned()
                 .collect();
@@ -357,26 +358,24 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                 }
             }
         }
-        KeyCode::Char('l') => {
-            match state.focus {
-                Focus::AppsPanel => {
-                    state.focus = Focus::FilesPanel;
+        KeyCode::Char('l') => match state.focus {
+            Focus::AppsPanel => {
+                state.focus = Focus::FilesPanel;
+                state.clear_search();
+                vec![Action::Nop]
+            }
+            Focus::FilesPanel => {
+                if state.miller.current_cursor_is_dir() {
+                    state.miller.navigate_down();
                     state.clear_search();
                     vec![Action::Nop]
-                }
-                Focus::FilesPanel => {
-                    if state.miller.current_cursor_is_dir() {
-                        state.miller.navigate_down();
-                        state.clear_search();
-                        vec![Action::Nop]
-                    } else if let Some(path) = state.miller.current_cursor_path() {
-                        vec![Action::OpenEditor(path)]
-                    } else {
-                        vec![Action::Nop]
-                    }
+                } else if let Some(path) = state.miller.current_cursor_path() {
+                    vec![Action::OpenEditor(path)]
+                } else {
+                    vec![Action::Nop]
                 }
             }
-        }
+        },
 
         // Search
         KeyCode::Char('/') => {
@@ -432,7 +431,9 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                     return vec![Action::OpenEditor(path.clone())];
                 }
             }
-            vec![Action::SetStatus("No primary config for this app".to_string())]
+            vec![Action::SetStatus(
+                "No primary config for this app".to_string(),
+            )]
         }
         KeyCode::Char('x') if state.focus == Focus::AppsPanel => {
             if let Some(app) = state.selected_app().cloned() {
@@ -499,7 +500,8 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             let roost_dir = state.roost_dir.clone();
             match crate::git::log(&roost_dir, 50) {
                 Ok(commits) => {
-                    state.git_log_dialog = Some(crate::tui::main_view::dialogs::GitLogState::new(commits));
+                    state.git_log_dialog =
+                        Some(crate::tui::main_view::dialogs::GitLogState::new(commits));
                 }
                 Err(e) => {
                     return vec![Action::SetStatus(format!("Git log error: {}", e))];
@@ -511,7 +513,9 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             let roost_dir = state.roost_dir.clone();
             match crate::git::diff(&roost_dir) {
                 Ok(diff_text) => {
-                    state.diff_view = Some(crate::tui::main_view::dialogs::DiffViewState::new(&diff_text));
+                    state.diff_view = Some(crate::tui::main_view::dialogs::DiffViewState::new(
+                        &diff_text,
+                    ));
                 }
                 Err(e) => {
                     return vec![Action::SetStatus(format!("Diff error: {}", e))];
@@ -638,10 +642,7 @@ fn handle_profile(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                     };
                     if !name.is_empty() {
                         state.profile_dialog = None;
-                        return vec![Action::CreateProfile {
-                            name,
-                            copy_current,
-                        }];
+                        return vec![Action::CreateProfile { name, copy_current }];
                     }
                 }
                 ProfileMode::Delete => {
@@ -813,7 +814,10 @@ fn handle_git_log(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                         // Keep dialog compact: show names only when few, else just counts
                         let format_apps = |apps: &[&&String]| -> String {
                             if apps.len() <= 8 {
-                                apps.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", ")
+                                apps.iter()
+                                    .map(|a| a.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
                             } else {
                                 format!("{} total", apps.len())
                             }
@@ -834,7 +838,9 @@ fn handle_git_log(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                         }
                         message.push_str("\n");
                         if !protected.is_empty() {
-                            message.push_str("Preserved apps' files and configs will not be touched.\n");
+                            message.push_str(
+                                "Preserved apps' files and configs will not be touched.\n",
+                            );
                         }
                         message.push_str("A new commit will be created.");
                     }
@@ -843,8 +849,7 @@ fn handle_git_log(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                         let short_hash = &hash[..hash.len().min(7)];
                         return vec![Action::SetStatus(format!(
                             "Cannot rollback: could not read roost.toml at {} ({})",
-                            short_hash,
-                            e
+                            short_hash, e
                         ))];
                     }
                 }
@@ -913,7 +918,12 @@ fn handle_app_link(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                 AppLinkStep::PickProfile => state.shared.profiles.len(),
                 AppLinkStep::PickApp => {
                     if let Some(ref profile) = app_link.selected_profile {
-                        state.shared.profiles.get(profile).map(|p| p.apps.len()).unwrap_or(0)
+                        state
+                            .shared
+                            .profiles
+                            .get(profile)
+                            .map(|p| p.apps.len())
+                            .unwrap_or(0)
                     } else {
                         0
                     }

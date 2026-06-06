@@ -186,26 +186,21 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             }
             state.local.link_paths.remove(&app_name);
 
-            if let Err(e) = app::save_shared(
-                &app::shared_config_path(&state.roost_dir),
-                &state.shared,
-            ) {
+            if let Err(e) =
+                app::save_shared(&app::shared_config_path(&state.roost_dir), &state.shared)
+            {
                 state.status_message = Some(format!("Error saving config: {}", e));
                 return Ok(());
             }
-            if let Err(e) = app::save_local(
-                &app::local_config_path(&state.roost_dir),
-                &state.local,
-            ) {
+            if let Err(e) = app::save_local(&app::local_config_path(&state.roost_dir), &state.local)
+            {
                 state.status_message = Some(format!("Error saving local config: {}", e));
                 return Ok(());
             }
 
             state.pending_auto_commit = Some(format!("remove: {}", app_name));
             state.status_message = Some(format!("Removed '{}'", app_name));
-            state.app_cursor = state
-                .app_cursor
-                .min(state.app_count().saturating_sub(1));
+            state.app_cursor = state.app_cursor.min(state.app_count().saturating_sub(1));
             state.sync_miller_to_selected_app();
         }
         Action::OpenEditor(path) => {
@@ -335,10 +330,8 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 return Ok(());
             }
 
-            if let Err(e) = app::save_local(
-                &app::local_config_path(&state.roost_dir),
-                &state.local,
-            ) {
+            if let Err(e) = app::save_local(&app::local_config_path(&state.roost_dir), &state.local)
+            {
                 state.status_message = Some(format!("Error saving local config: {}", e));
                 state.local.active_profile = old_profile;
                 return Ok(());

@@ -289,9 +289,10 @@ pub fn switch_profile(
 
             if origin.is_symlink()
                 && let Ok(target) = fs::read_link(&origin)
-                    && target == dest {
-                        let _ = fs::remove_file(&origin);
-                    }
+                && target == dest
+            {
+                let _ = fs::remove_file(&origin);
+            }
         }
     }
 
