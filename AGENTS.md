@@ -157,6 +157,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 | Fuzzy search | **Solid** | Reusable FuzzyEngine with tests |
 | Confirm dialog | **Solid** | Reusable yes/no dialog |
 | Symlink ops | **Solid** | ingest, restore, unlink, switch, import, copy all tested |
+| Rooster animation | **Solid** | Hardcoded braille-dot pixel grid with pecking state; `RoosterState` tick system |
 | Config validation | **Solid** | Cycle detection, unknown app/profile checks |
 | Ignore system | **Solid** | Global + per-app patterns, .gitignore regeneration |
 
@@ -180,6 +181,7 @@ All tasks completed on `release-prep` branch (10 commits beyond base):
 | **Panic hook / Ctrl-C** | Consolidated into `tui::init()` with `OnceLock`, 3 call sites unified |
 | **Ignore pattern confirm** | y/n confirm before removing ignore pattern |
 | **j/k in text input** | `j`/`k` no longer consumed for navigation in ignore Add and profile Create modes |
+| **Rooster pecking animation** | Replaced algorithmic shift with hardcoded `ROOSTER_PECK` pixel grid for natural head-tilt bend |
 
 ### Known Issues / Fragile Areas
 
