@@ -1,4 +1,4 @@
-[![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![crates.io](https://img.shields.io/crates/v/roost-dot.svg)](https://crates.io/crates/roost-dot)
 
 ```text
                   ,.
@@ -40,6 +40,12 @@ Roost is a terminal-based dotfile manager that moves your application configurat
 - `git` CLI
 
 ## Installation
+
+From crates.io:
+
+```sh
+cargo install roost-dot
+```
 
 From source:
 
