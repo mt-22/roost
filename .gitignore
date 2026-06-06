@@ -17,6 +17,14 @@
 .env.*
 !.env.example
 
+# AI coding harnesses / assistants
+.opencode/
+.cursor/
+.cursorrules
+.claude/
+.aider/
+.continue/
+
 # Development artifacts / planning
 superpowers/
 .superpowers/
