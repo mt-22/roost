@@ -2,7 +2,7 @@ use clap::{CommandFactory, Parser};
 use color_eyre::{Result, eyre::bail};
 use dialoguer::{console::style, theme::ColorfulTheme};
 use roost::cli::{Cli, Commands, ProfileAction, ProfileCmd};
-use roost::{app, git, init, linker, pager, tui};
+use roost::{app, git, init, linker, logo, pager, tui};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -14,7 +14,9 @@ fn main() -> Result<()> {
     match cli.command {
         None => {
             let (shared, local, roost_dir) = load_configs()?;
-            tui::main_view::run(roost_dir, shared, local)
+            let result = tui::main_view::run(roost_dir, shared, local);
+            println!("{}", style(logo::random_exit_banner()).cyan());
+            result
         }
         Some(Commands::Init) => cmd_init(),
         Some(Commands::Add { path }) => cmd_add(&path),
