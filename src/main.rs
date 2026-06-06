@@ -445,12 +445,24 @@ fn cmd_sync() -> Result<()> {
                 println!("  - {}", style(name).yellow().dim());
             }
         }
-        git::SyncResult::FileConflict { .. } => {
+        git::SyncResult::FileConflict { file_conflicts, backups, .. } => {
             println!(
                 "{}",
-                style("Sync complete with file conflicts. Manual resolution may be required.")
-                    .yellow()
+                style("Sync encountered file conflicts with remote. Rebase was aborted; your local changes are intact.").yellow()
             );
+            println!(
+                "{}",
+                style("To resolve: cd ~/.roost && git status, then fix conflicts and re-run sync.").yellow()
+            );
+            if !file_conflicts.is_empty() {
+                println!("{}", style("Conflicting files:").yellow());
+                for f in &file_conflicts {
+                    println!("  - {}", style(f).yellow().dim());
+                }
+            }
+            if !backups.is_empty() {
+                println!("{}", style("Local backups saved to ~/.roost/.backups/sync/").yellow());
+            }
         }
     }
 

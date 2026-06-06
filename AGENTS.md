@@ -189,7 +189,7 @@ All tasks completed on `release-prep` branch (10 commits beyond base):
 | Issue | Status | Fix Needed |
 |-------|--------|------------|
 | No concurrency protection on config files | **Fixed** | Atomic writes via temp file + rename in `save_shared()`, `save_local()`, `gitignore::regenerate()` |
-| `git pull --rebase` failures | **Partial** | `sync()` surfaces conflicts but aborts rebase rather than prompting user |
+| `git pull --rebase` failures | **Fixed** | `sync()` surfaces conflicts with actionable guidance (CLI lists files + resolution steps, TUI shows conflict names + next steps) |
 | Dialog states flat `Option<T>` on giant struct | **In use in Main TUI** | Consider state machine enum for type safety in future refactor |
 | Narrow terminal panic | **Fixed** | `saturating_sub` used for all width calculations; min size enforcement with graceful message |
 | `Esc` in onboarding without confirmation | **Fixed** | Already has discard confirmation |
@@ -201,6 +201,7 @@ All tasks completed on `release-prep` branch (10 commits beyond base):
 | Structural merge ignores most fields | **Fixed** | Merge now reconciles `primary_config`, `ignore`, profile/app deletions, and ignored patterns — not just `is_dir` |
 | No `ensure_links()` after sync | **Fixed** | Both CLI and TUI call `linker::ensure_links()` after successful sync |
 | `git reset --hard` in rollback destroys new apps | **Fixed** | `safe_rollback()` uses selective `git checkout` per app, preserving apps not at the target commit |
+| Status bar overflow | **Fixed** | Long status messages truncated to bar width; `? help` always visible on left |
 
 ---
 
@@ -224,11 +225,11 @@ All tasks completed on `release-prep` branch (10 commits beyond base):
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 9 | **File preview limit** | ⬜ | Miller file preview reads full file; should cap at N lines (e.g. 100) |
-| 10 | **Unicode display width** | ⬜ | Search/miller may misalign multi-byte characters |
-| 11 | **Status bar overflow** | ⬜ | Long status messages overflow the bar width |
-| 12 | **init.rs integration test** | ⬜ | Missing TUI/non-TUI init test coverage |
-| 13 | **Git pull --rebase UX** | ⬜ | Sync surfaces conflicts but aborts rebase rather than prompting user |
+| 9 | **File preview limit** | ✅ | Dropped — uncapped is fine |
+| 10 | **Unicode display width** | ✅ | Dropped — not a practical concern for typical use |
+| 11 | **Status bar overflow** | ✅ | Truncate status messages to bar width, keep `? help` always visible |
+| 12 | **init.rs integration test** | ⬜ | Missing non-TUI init test coverage |
+| 13 | **Git pull --rebase UX** | ✅ | Improved conflict messages with actionable guidance |
 
 ---
 

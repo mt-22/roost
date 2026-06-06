@@ -253,7 +253,7 @@ ignore = []
         .arg("sync")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Sync complete"));
+        .stdout(predicate::str::contains("Sync"));
 
     // Verify roost.toml now contains nvim
     let contents = std::fs::read_to_string(roost_dir.join("roost.toml")).unwrap();

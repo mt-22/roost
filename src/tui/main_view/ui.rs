@@ -316,12 +316,19 @@ fn normal_hint_spans(state: &MainViewState) -> Vec<Span<'static>> {
     all
 }
 
+const HELP_HINT: &str = "? help  ";
+
 fn render_status_bar(state: &MainViewState, frame: &mut Frame, area: Rect) {
     let parts = if let Some(ref msg) = state.status_message {
-        vec![Span::styled(
-            msg.clone(),
-            Style::default().fg(Color::Yellow),
-        )]
+        let help_width = HELP_HINT.len();
+        let max_msg = (area.width as usize).saturating_sub(help_width);
+        let truncated = truncate_str(msg, max_msg);
+        let mut spans = vec![
+            Span::styled("?", key_style()),
+            Span::styled(" help  ", Style::default().fg(Color::DarkGray)),
+        ];
+        spans.push(Span::styled(truncated, Style::default().fg(Color::Yellow)));
+        spans
     } else if let Some(ref search) = state.search {
         if search.visible {
             // Overlay is visible

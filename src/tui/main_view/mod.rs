@@ -276,9 +276,12 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                         resolved.len()
                     ));
                 }
-                Ok(crate::git::SyncResult::FileConflict { .. }) => {
-                    state.status_message =
-                        Some("Sync complete with file conflicts. Check status.".to_string());
+                Ok(crate::git::SyncResult::FileConflict { file_conflicts, .. }) => {
+                    let conflict_list = file_conflicts.join(", ");
+                    state.status_message = Some(format!(
+                        "Sync conflict: {}. Run 'cd ~/.roost && git status', fix conflicts, then sync again.",
+                        if conflict_list.is_empty() { "file conflicts with remote".to_string() } else { conflict_list }
+                    ));
                 }
                 Err(e) => {
                     state.status_message = Some(format!("Sync error: {}", e));
