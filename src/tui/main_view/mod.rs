@@ -446,6 +446,7 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             state.shared.profiles.remove(&name);
             let shared_path = app::shared_config_path(&state.roost_dir);
             let _ = app::save_shared(&shared_path, &state.shared);
+            state.profile_dialog = None;
             state.status_message = Some(format!("Deleted profile '{}'", name));
         }
         Action::ImportApp {

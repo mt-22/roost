@@ -645,8 +645,12 @@ fn handle_profile(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                                 "Cannot delete the active profile".to_string(),
                             )];
                         }
-                        state.profile_dialog = None;
-                        return vec![Action::DeleteProfile(name)];
+                        state.confirm_dialog = Some(ConfirmDialog::destructive(
+                            "Delete Profile",
+                            format!("Delete profile '{}'? This cannot be undone.", name),
+                        ));
+                        state.pending_action = Some(Action::DeleteProfile(name));
+                        return vec![Action::Nop];
                     }
                 }
             }
