@@ -407,7 +407,7 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
         }
 
         // Quit
-        KeyCode::Char('q') | KeyCode::Esc => {
+        KeyCode::Char('q') => {
             if state.pending_auto_commit.is_some() {
                 state.confirm_dialog = Some(ConfirmDialog::destructive(
                     "Quit",

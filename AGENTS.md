@@ -134,7 +134,7 @@ ROOST_DIR=/tmp/test-roost cargo run -- init
 
 ### Key Bindings (Complete Map)
 
-**Base:** `j/k` nav, `Tab` focus, `h/l` miller, `/` search, `?` help, `q/Esc` quit
+**Base:** `j/k` nav, `Tab` focus, `h/l` miller, `/` search, `?` help, `q` quit
 **Apps panel:** `o` open primary, `x` remove, `f` import-from, `m` paste-into
 **Files panel:** `e/Enter` edit, `p` set primary
 **Actions:** `s` sync, `a` add app, `i` ignore, `P` profile, `g` git log, `d` diff, `u` undo
