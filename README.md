@@ -20,6 +20,8 @@
 Roost is a terminal-based dotfile manager that moves your application configuration files into a central directory (`~/.roost/`), organized by device-specific **profiles**, and creates symlinks back to their original locations. Optionally sync everything via Git for multi-device setups.
 
 ![Roost TUI demo](assets/roost-hero-use.gif)
+> [!NOTE]
+> Pairs great with vim!
 
 ## Features
 
