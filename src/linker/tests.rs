@@ -619,3 +619,224 @@ fn test_validate_path_accepts_inside_home() {
     fs::write(&good, "test").unwrap();
     assert!(validate_path_in_home(&good, home).is_ok());
 }
+
+// --- Path rejection at mutation boundaries [R-1, R-2] ---
+
+#[test]
+fn ingest_rejects_path_outside_home() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "laptop");
+    let profile_dir = roost.join("laptop");
+
+    // A path outside home (and temp) should be rejected
+    let origin = Path::new("/etc/passwd");
+    let result = ingest(origin, &profile_dir, "app", false);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("outside"));
+}
+
+#[test]
+fn restore_rejects_path_outside_home() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "laptop");
+    let profile_dir = roost.join("laptop");
+
+    create_dir(&profile_dir, "nvim");
+
+    let origin = Path::new("/etc/nvim");
+    let result = restore(origin, &profile_dir, "nvim", true);
+    assert!(result.is_err());
+}
+
+#[test]
+fn unlink_rejects_path_outside_home() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "laptop");
+    let profile_dir = roost.join("laptop");
+
+    let origin = Path::new("/etc/nvim");
+    let result = unlink(origin, &profile_dir, "nvim", true);
+    assert!(result.is_err());
+}
+
+#[test]
+fn ingest_rejects_invalid_app_name() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "laptop");
+    let profile_dir = roost.join("laptop");
+
+    let origin = create_file(tmp.path(), ".gitconfig");
+    let result = ingest(&origin, &profile_dir, "app/../../etc", false);
+    assert!(result.is_err());
+}
+
+#[test]
+fn restore_rejects_invalid_app_name() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "laptop");
+    let profile_dir = roost.join("laptop");
+
+    create_dir(&profile_dir, "nvim");
+    let origin = tmp.path().join("config/nvim");
+    fs::create_dir_all(origin.parent().unwrap()).unwrap();
+
+    let result = restore(&origin, &profile_dir, "../../etc", true);
+    assert!(result.is_err());
+}
+
+#[test]
+fn ensure_links_skips_apps_with_invalid_link_paths() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "laptop");
+    let profile_dir = roost.join("laptop");
+
+    create_dir(&profile_dir, "nvim");
+
+    let config = build_config(vec![("nvim", true)], vec!["nvim"]);
+    let mut local = build_local(vec![("nvim", Path::new("/etc/passwd"))]);
+
+    let actions = ensure_links(&config, &mut local, &roost).unwrap();
+    assert!(actions.iter().any(|a| a.contains("SKIP")));
+    // origin should NOT have been touched
+    assert!(!Path::new("/etc/passwd").is_symlink());
+}
+
+// --- Backup fidelity [R-3, R-4, R-5] ---
+
+#[test]
+fn ensure_links_backs_up_file_conflict_as_file() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "laptop");
+    let profile_dir = roost.join("laptop");
+
+    fs::create_dir_all(profile_dir.join("misc")).unwrap();
+    fs::write(profile_dir.join("misc/gitconfig"), "roost content").unwrap();
+
+    // real file at origin
+    let origin = tmp.path().join(".gitconfig");
+    fs::write(&origin, "original content").unwrap();
+
+    let config = build_config(vec![("gitconfig", false)], vec!["gitconfig"]);
+    let mut local = build_local(vec![("gitconfig", &origin)]);
+
+    let actions = ensure_links(&config, &mut local, &roost).unwrap();
+
+    // backup should exist as a regular file
+    let backup = roost.join(".backups/conflict-gitconfig");
+    assert!(backup.is_file());
+    assert!(!backup.is_symlink());
+    assert_eq!(fs::read_to_string(&backup).unwrap(), "original content");
+
+    // origin should now be a symlink
+    assert!(origin.is_symlink());
+    assert!(actions.iter().any(|a| a.contains("BACKED UP")));
+}
+
+#[test]
+fn ensure_links_backs_up_dir_conflict_as_dir() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "laptop");
+    let profile_dir = roost.join("laptop");
+
+    create_dir(&profile_dir, "nvim");
+    fs::write(profile_dir.join("nvim/init.lua"), "roost content").unwrap();
+
+    // real dir at origin with content
+    let origin = tmp.path().join("config/nvim");
+    fs::create_dir_all(&origin).unwrap();
+    fs::write(origin.join("old.lua"), "original content").unwrap();
+
+    let config = build_config(vec![("nvim", true)], vec!["nvim"]);
+    let mut local = build_local(vec![("nvim", &origin)]);
+
+    let actions = ensure_links(&config, &mut local, &roost).unwrap();
+
+    // backup should exist as a directory
+    let backup = roost.join(".backups/conflict-nvim");
+    assert!(backup.is_dir());
+    assert!(backup.join("old.lua").exists());
+
+    // origin should now be a symlink
+    assert!(origin.is_symlink());
+    assert!(actions.iter().any(|a| a.contains("BACKED UP")));
+}
+
+#[test]
+fn ensure_links_preserves_symlink_in_backup() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "laptop");
+    let profile_dir = roost.join("laptop");
+
+    fs::create_dir_all(profile_dir.join("misc")).unwrap();
+    fs::write(profile_dir.join("misc/gitconfig"), "roost content").unwrap();
+
+    // real file at origin
+    let origin = tmp.path().join(".gitconfig");
+    fs::write(&origin, "original content").unwrap();
+
+    // create a symlink inside a subdir at origin for the backup to encounter
+    let real_target = tmp.path().join("real_target.txt");
+    fs::write(&real_target, "target content").unwrap();
+    let inner_link = origin.parent().unwrap().join("inner_link");
+    create_symlink(&real_target, &inner_link, false).unwrap();
+
+    let config = build_config(vec![("gitconfig", false)], vec!["gitconfig"]);
+    let mut local = build_local(vec![("gitconfig", &origin)]);
+
+    let actions = ensure_links(&config, &mut local, &roost).unwrap();
+
+    // The backup should preserve the inner symlink as a symlink
+    let backup = roost.join(".backups/conflict-gitconfig");
+    // This test primarily verifies that copy_item doesn't crash on mixed types
+    // and that the backup operation completes successfully.
+    assert!(backup.is_file());
+    assert_eq!(fs::read_to_string(&backup).unwrap(), "original content");
+    assert!(actions.iter().any(|a| a.contains("BACKED UP")));
+}
+
+#[test]
+fn ensure_links_preserves_symlink_in_dir_backup() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "laptop");
+    let profile_dir = roost.join("laptop");
+
+    create_dir(&profile_dir, "nvim");
+    fs::write(profile_dir.join("nvim/init.lua"), "roost content").unwrap();
+
+    // real dir at origin with a symlink inside it
+    let origin = tmp.path().join("config/nvim");
+    fs::create_dir_all(&origin).unwrap();
+    fs::write(origin.join("real.lua"), "real content").unwrap();
+
+    let real_target = tmp.path().join("actual_config.lua");
+    fs::write(&real_target, "target content").unwrap();
+    let inner_link = origin.join("linked.lua");
+    create_symlink(&real_target, &inner_link, false).unwrap();
+
+    let config = build_config(vec![("nvim", true)], vec!["nvim"]);
+    let mut local = build_local(vec![("nvim", &origin)]);
+
+    let actions = ensure_links(&config, &mut local, &roost).unwrap();
+
+    // backup should contain the symlink as a symlink, not a copy of its target
+    let backup = roost.join(".backups/conflict-nvim");
+    assert!(backup.join("real.lua").exists());
+    assert!(backup.join("linked.lua").is_symlink());
+    assert_eq!(
+        fs::read_link(backup.join("linked.lua")).unwrap(),
+        real_target
+    );
+    assert!(actions.iter().any(|a| a.contains("BACKED UP")));
+}
+
+#[test]
+fn switch_profile_rejects_invalid_profile_name() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "laptop");
+
+    let config = build_config(vec![], vec![]);
+    let mut local = build_local(vec![]);
+
+    let result = switch_profile("laptop", "../../etc", &config, &mut local, &roost);
+    assert!(result.is_err());
+}

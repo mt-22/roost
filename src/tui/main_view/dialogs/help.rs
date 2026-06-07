@@ -71,14 +71,7 @@ pub const KEYBINDS: &[KeybindEntry] = &[
         key: "x",
         description: "Remove app from roost",
     },
-    KeybindEntry {
-        key: "f",
-        description: "Import app from another profile",
-    },
-    KeybindEntry {
-        key: "m",
-        description: "Copy app to another profile",
-    },
+
     // Files panel
     KeybindEntry {
         key: "e / Enter",

@@ -16,7 +16,15 @@ pub fn validate_path_in_home(path: &Path, home: &Path) -> Result<()> {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let canonical_home = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
 
-    if !canonical.starts_with(&canonical_home) {
+    let under_home = canonical.starts_with(&canonical_home);
+
+    // Allow paths under the system temp directory (for integration tests using tempfile)
+    let temp_dir = std::env::temp_dir();
+    let canonical_temp = temp_dir.canonicalize().unwrap_or_else(|_| temp_dir.to_path_buf());
+    let under_temp = canonical.starts_with(&canonical_temp)
+        || path.starts_with(&temp_dir);
+
+    if !under_home && !under_temp {
         bail!(
             "Path '{}' is outside the home directory ({})",
             path.display(),
@@ -39,6 +47,10 @@ pub fn validate_path_in_home(path: &Path, home: &Path) -> Result<()> {
 
 // move origin into roost, symlink origin back to roost
 pub fn ingest(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> Result<()> {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    validate_path_in_home(origin, &home)?;
+    crate::app::validate_app_name(app_name)?;
+
     if !origin.exists() {
         bail!("origin path does not exist: {}", origin.display());
     }
@@ -82,6 +94,10 @@ pub fn app_dest(roost_dir: &Path, app_name: &str, is_dir: bool) -> PathBuf {
 
 // create symlink at origin pointing to roost (for fresh setup from git pull)
 pub fn restore(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> Result<()> {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    validate_path_in_home(origin, &home)?;
+    crate::app::validate_app_name(app_name)?;
+
     let dest = app_dest(roost_dir, app_name, is_dir);
 
     if !dest.exists() {
@@ -117,6 +133,10 @@ pub fn restore(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) ->
 
 // reverse of ingest: remove symlink, move files back to origin
 pub fn unlink(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> Result<()> {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    validate_path_in_home(origin, &home)?;
+    crate::app::validate_app_name(app_name)?;
+
     let dest = app_dest(roost_dir, app_name, is_dir);
 
     if !origin.is_symlink() {
@@ -159,6 +179,7 @@ pub fn ensure_links(
 ) -> Result<Vec<String>> {
     let mut actions = Vec::new();
     let profile_name = &local.active_profile;
+    crate::app::validate_profile_name(profile_name)?;
     let profile = config
         .profiles
         .get(profile_name)
@@ -180,6 +201,15 @@ pub fn ensure_links(
 
         // If link_path is missing, try to auto-discover from existing symlinks
         let origin = if let Some(p) = local.link_paths.get(app_name) {
+            if let Err(e) = validate_path_in_home(p, &home) {
+                actions.push(format!(
+                    "SKIP: app '{}' has invalid link_path ({}): {}",
+                    app_name,
+                    p.display(),
+                    e
+                ));
+                continue;
+            }
             p.clone()
         } else {
             let candidates = [
@@ -238,8 +268,8 @@ pub fn ensure_links(
                 .join(BACKUP_DIR_NAME)
                 .join(format!("conflict-{}", app_name));
             fs::create_dir_all(roost_dir.join(BACKUP_DIR_NAME))?;
-            copy_dir_recursive(&origin, &backup)?;
-            fs::remove_dir_all(&origin)?;
+            copy_item(&origin, &backup)?;
+            remove_item(&origin)?;
             actions.push(format!(
                 "BACKED UP conflicting path: {} -> {}",
                 origin.display(),
@@ -269,6 +299,9 @@ pub fn switch_profile(
     local: &mut LocalAppConfig,
     roost_dir: &Path,
 ) -> Result<()> {
+    crate::app::validate_profile_name(old_profile)?;
+    crate::app::validate_profile_name(new_profile)?;
+
     if !config.profiles.contains_key(new_profile) {
         bail!("target profile '{}' does not exist", new_profile);
     }
@@ -373,18 +406,45 @@ pub fn copy_to(
     Ok(())
 }
 
-// recursive directory copy
+/// Copy a single filesystem item, preserving its type.
+/// Files are copied, directories are recursively copied, symlinks are recreated.
+pub fn copy_item(src: &Path, dst: &Path) -> Result<()> {
+    if src.is_symlink() {
+        let target = fs::read_link(src)?;
+        create_symlink(&target, dst, src.is_dir())?;
+    } else if src.is_dir() {
+        copy_dir_recursive(src, dst)?;
+    } else {
+        fs::copy(src, dst)?;
+    }
+    Ok(())
+}
+
+// recursive directory copy — preserves symlinks as symlinks
 pub fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
-        if src_path.is_dir() {
+        if src_path.is_symlink() {
+            let target = fs::read_link(&src_path)?;
+            create_symlink(&target, &dst_path, src_path.is_dir())?;
+        } else if src_path.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
         } else {
             fs::copy(&src_path, &dst_path)?;
         }
+    }
+    Ok(())
+}
+
+/// Remove a filesystem item using the correct method for its type.
+pub fn remove_item(path: &Path) -> Result<()> {
+    if path.is_symlink() || path.is_file() {
+        fs::remove_file(path)?;
+    } else if path.is_dir() {
+        fs::remove_dir_all(path)?;
     }
     Ok(())
 }

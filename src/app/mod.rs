@@ -1,5 +1,5 @@
 use crate::os_detect::OsInfo;
-use color_eyre::Result;
+use color_eyre::{Result, eyre::bail};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -51,6 +51,34 @@ where
 /// for path injection. Replaces path separators and null bytes.
 pub fn sanitize_app_name(name: &str) -> String {
     name.replace(['/', '\\', '\0'], "_")
+}
+
+/// Reject names that contain path separators, parent-dir references, or null bytes.
+fn reject_invalid_name(name: &str, kind: &str) -> Result<()> {
+    if name.is_empty() {
+        bail!("{} name cannot be empty", kind);
+    }
+    if name.contains(['/', '\\', '\0']) {
+        bail!("{} name contains invalid characters: {}", kind, name);
+    }
+    if name == ".." || name.contains("../") || name.contains("..\\") {
+        bail!("{} name contains parent directory references: {}", kind, name);
+    }
+    // Reject names that would be hidden or system-reserved on common platforms
+    if name.starts_with('.') && name.len() > 1 {
+        // Allow dot-prefixed names (common for dotfiles) but not lone "."
+    }
+    Ok(())
+}
+
+/// Validate an app name before use in config or filesystem operations.
+pub fn validate_app_name(name: &str) -> Result<()> {
+    reject_invalid_name(name, "app")
+}
+
+/// Validate a profile name before use in config or filesystem operations.
+pub fn validate_profile_name(name: &str) -> Result<()> {
+    reject_invalid_name(name, "profile")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,7 +134,10 @@ pub fn roost_dir() -> PathBuf {
 }
 
 pub fn profile_dir(roost_dir: &Path, profile_name: &str) -> PathBuf {
-    roost_dir.join(profile_name)
+    // Profile names are validated at mutation boundaries, but we defensively
+    // sanitize here to prevent any path-escaped profile directory creation.
+    let safe_name = profile_name.replace(['/', '\\', '\0'], "_");
+    roost_dir.join(safe_name)
 }
 
 pub fn shared_config_path(roost_dir: &Path) -> PathBuf {

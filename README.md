@@ -28,7 +28,7 @@ Roost is a terminal-based dotfile manager that moves your application configurat
 - **Interactive TUI and CLI** — browse and manage configs in a terminal interface, or script with subcommands
 - **Git sync** — push/pull your entire dotfile store to a remote repository with conflict detection
 - **Safe rollback** — selective git checkout preserves apps not present at the target commit
-- **Cross-profile sharing** — link apps from one profile into another (zero-copy) or copy them independently
+- **Cross-profile sharing** — link apps from one profile into another (zero-copy) or copy them independently (planned, not yet available)
 - **Built-in diagnostics** — `roost doctor` checks for broken symlinks, config inconsistencies, orphaned files
 - **Git history** — `diff`, `log`, `undo`, and `rollback` commands for config change management
 - **Fuzzy search** — quickly find apps and files in the TUI
@@ -73,7 +73,7 @@ cargo install --path .
 | `roost` | Launch the TUI (default when no command given) |
 | `roost add <path>` | Ingest a config path into the active profile |
 | `roost remove <app>` | Stop managing an app, restore original files |
-| `roost restore` | Repair all symlinks |
+| `roost restore <app>` | Restore a single app's symlink |
 | `roost status` | Show managed apps and link status |
 | `roost where <app>` | Print where an app's files live in `~/.roost/` |
 | `roost sync` | Stage, commit, pull (rebase), and push |
@@ -84,13 +84,13 @@ cargo install --path .
 | `roost rollback <hash>` | Reset to a specific commit (destructive) |
 | `roost doctor` | Run diagnostics on config and symlinks |
 | `roost remote` | Show the current git remote URL |
-| `roost remote set <url>` | Set the git remote URL |
+| `roost remote <url>` | Set the git remote URL |
 | `roost profile add <name>` | Create a new profile (clones active profile's apps) |
-| `roost profile add <name> --empty` | Create an empty profile |
+| `roost profile add <name> --from <profile>` | Create a new profile copying apps from an existing profile |
 | `roost profile list` | List all profiles (active marked with `*`) |
 | `roost profile switch <name>` | Switch active profile (relinks symlinks) |
-| `roost profile delete <name>` | Delete a profile (restores files, auto-commits) |
-| `roost profile rename <old> <new>` | Rename a profile (moves files, updates refs) |
+| `roost profile delete <name>` | Delete a profile from config |
+| `roost profile rename <old> <new>` | Rename a profile in config |
 | `roost ignore <pattern>` | Add a global ignore pattern |
 | `roost ignore --app <app> <pattern>` | Add an ignore pattern for a specific app |
 | `roost ignore --list` | List all ignore patterns |
@@ -126,8 +126,8 @@ cargo install --path .
 | `g` | View git log |
 | `u` | Undo last commit |
 | `r` | Rollback to selected commit (git log dialog only) |
-| `f` | Import app from another profile (symlink) |
-| `m` | Paste app into another profile (copy) |
+| `f` | Import app from another profile (planned) |
+| `m` | Paste app into another profile (planned) |
 | `i` | Manage ignore patterns |
 | `P` | Profile dialog (switch / create / delete) |
 | `?` | Help (searchable keybind reference) |
@@ -161,25 +161,11 @@ During setup, the original config file is moved into `~/.roost/<profile>/` and a
 
 **Device A (desktop):** Run `roost init`, create profile "shared" with common apps (zsh, git, tmux, nvim), set up git remote, `roost sync`.
 
-**Device B (laptop):** Run `roost init` with the same git remote — pulls the shared profile. Create a new "laptop" profile for device-specific configs. Add the laptop's device-specific configs. Then use the TUI to share common apps:
+**Device B (laptop):** Run `roost init` with the same git remote — pulls the shared profile. Create a new "laptop" profile for device-specific configs. Add the laptop's device-specific configs.
 
-- **Link from profile** (press `f` in the Apps panel): Select the "shared" profile, then pick an app (e.g., nvim). This creates a symlink chain so both profiles read from the same files:
-  ```
-  ~/.config/nvim → ~/.roost/laptop/nvim → ~/.roost/shared/nvim
-  ```
-  Edits from either device are visible everywhere — perfect for configs you want identical across machines.
+> **Note:** Cross-profile sharing (importing and copying apps between profiles) is planned but not yet available in the current release.
 
-- **Paste into profile** (press `m` in the Apps panel): Select the "shared" profile, then pick an app. This creates an independent copy so each profile can diverge. Ideal for apps that need device-specific tweaks.
-
-**Sync:** On each device, `roost sync` pushes/pulls changes. The symlink chains are stored in config, so they work on any device after a pull.
-
-```
-                    ┌─ laptop/nvim → shared/nvim  (symlink, shared config)
-~/.config/nvim ─────┤
-                    └─ desktop/nvim (independent copy)
-
-~/.config/zshrc ──── shared/misc/.zshrc  (linked from both profiles)
-```
+**Sync:** On each device, `roost sync` pushes/pulls changes.
 
 ## License
 

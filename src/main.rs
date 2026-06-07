@@ -336,7 +336,12 @@ fn cmd_rollback(hash: &str) -> Result<()> {
 fn cmd_add(path: &std::path::Path) -> Result<()> {
     let (mut shared, mut local, roost_dir) = load_configs()?;
     let profile_name = local.active_profile.clone();
+    app::validate_profile_name(&profile_name)?;
     let pdir = app::profile_dir(&roost_dir, &profile_name);
+
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    linker::validate_path_in_home(path, &home)?;
+
     if !path.exists() {
         bail!("Path '{}' does not exist.", path.display());
     }

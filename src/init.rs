@@ -158,6 +158,7 @@ pub fn run_wizard() -> Result<()> {
         let pdir = app::profile_dir(&roost_dir, &profile_name);
         let mut failures = Vec::new();
 
+        let home = dirs::home_dir().expect("no home directory");
         for item in &selected {
             let app_name_raw = if item.name.starts_with('.') && item.name.len() > 1 {
                 &item.name[1..]
@@ -170,6 +171,17 @@ pub fn run_wizard() -> Result<()> {
                 app_name_raw
             };
             let app_name = app::sanitize_app_name(app_name_raw);
+
+            // Skip paths outside home or with parent-dir references
+            if let Err(e) = linker::validate_path_in_home(&item.path, &home) {
+                println!(
+                    "  {} {}",
+                    style("✗").red().bold(),
+                    style(format!("skipped {}: {}", app_name, e)).red()
+                );
+                failures.push((app_name.to_string(), e));
+                continue;
+            }
 
             match linker::ingest(
                 &item.path,
