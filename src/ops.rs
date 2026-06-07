@@ -121,14 +121,26 @@ pub fn remove_app(
         .values()
         .any(|p| p.apps.contains(app_name));
 
+    // Remove the current profile's roost directory for this app
+    let profile_pdir = profile_dir(roost_dir, &profile_name);
+    let app_roost_path = if is_dir {
+        profile_pdir.join(app_name)
+    } else {
+        profile_pdir.join(crate::linker::MISC_DIR_NAME).join(app_name)
+    };
+
     if other_profiles_have_it {
+        // Other profiles still need the app — just remove the profile-level roost dir
+        // and the profile reference. Don't touch the home symlink.
+        if app_roost_path.exists() {
+            linker::remove_item(&app_roost_path)?;
+        }
         save_shared(&shared_config_path(roost_dir), shared)?;
         return Ok(());
     }
 
-    // This was the last profile — fully remove the app
-    let pdir = profile_dir(roost_dir, &profile_name);
-    linker::unlink(&origin, &pdir, app_name, is_dir)?;
+    // This was the last profile — fully remove the app (unlink restores to home)
+    linker::unlink(&origin, &profile_pdir, app_name, is_dir)?;
 
     shared.apps.remove(app_name);
     local.link_paths.remove(app_name);
