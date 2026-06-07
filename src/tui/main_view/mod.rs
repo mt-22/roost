@@ -436,19 +436,156 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             app,
             source_profile,
         } => {
-            state.status_message = Some(format!(
-                "Import '{}' from '{}' not yet implemented",
-                app, source_profile
-            ));
+            let current_profile = state.local.active_profile.clone();
+
+            let source = match state.shared.profiles.get(&source_profile) {
+                Some(p) => p,
+                None => {
+                    state.status_message = Some(format!(
+                        "Source profile '{}' not found",
+                        source_profile
+                    ));
+                    return Ok(());
+                }
+            };
+            if !source.apps.contains(&app) {
+                state.status_message = Some(format!(
+                    "App '{}' not found in profile '{}'",
+                    app, source_profile
+                ));
+                return Ok(());
+            }
+            if current_profile == source_profile {
+                state.status_message = Some("Cannot import from the same profile".to_string());
+                return Ok(());
+            }
+
+            let already_in_current = state
+                .shared
+                .profiles
+                .get(&current_profile)
+                .map(|p| p.apps.contains(&app))
+                .unwrap_or(false);
+            if already_in_current {
+                state.status_message = Some(format!(
+                    "App '{}' is already in profile '{}'",
+                    app, current_profile
+                ));
+                return Ok(());
+            }
+
+            if let Err(e) =
+                linker::import_from(&app, &source_profile, &current_profile, &state.roost_dir)
+            {
+                state.status_message = Some(format!("Error importing '{}': {}", app, e));
+                return Ok(());
+            }
+
+            if let Some(profile) = state.shared.profiles.get_mut(&current_profile) {
+                profile.apps.insert(app.clone());
+                profile
+                    .app_sources
+                    .insert(app.clone(), source_profile.clone());
+            }
+
+            if let Some(app_entry) = state.shared.apps.get_mut(&app) {
+                app_entry.on_profiles.insert(current_profile.clone());
+            }
+
+            if let Err(e) =
+                app::save_shared(&app::shared_config_path(&state.roost_dir), &state.shared)
+            {
+                state.status_message = Some(format!("Error saving config: {}", e));
+                return Ok(());
+            }
+
+            if let Err(e) =
+                linker::ensure_links(&state.shared, &mut state.local, &state.roost_dir)
+            {
+                state.status_message = Some(format!("Error linking '{}': {}", app, e));
+                return Ok(());
+            }
+            if let Err(e) =
+                app::save_local(&app::local_config_path(&state.roost_dir), &state.local)
+            {
+                state.status_message = Some(format!("Error saving local config: {}", e));
+                return Ok(());
+            }
+
+            state.pending_auto_commit = Some(format!("import: {} from {}", app, source_profile));
+            state.status_message =
+                Some(format!("Imported '{}' from '{}'", app, source_profile));
+            state.sync_miller_to_selected_app();
         }
         Action::CopyApp {
             app,
             target_profile,
         } => {
-            state.status_message = Some(format!(
-                "Copy '{}' to '{}' not yet implemented",
-                app, target_profile
-            ));
+            let current_profile = state.local.active_profile.clone();
+
+            if !state.shared.profiles.contains_key(&target_profile) {
+                state.status_message =
+                    Some(format!("Target profile '{}' not found", target_profile));
+                return Ok(());
+            }
+            if current_profile == target_profile {
+                state.status_message = Some("Cannot copy to the same profile".to_string());
+                return Ok(());
+            }
+
+            let in_current = state
+                .shared
+                .profiles
+                .get(&current_profile)
+                .map(|p| p.apps.contains(&app))
+                .unwrap_or(false);
+            if !in_current {
+                state.status_message = Some(format!(
+                    "App '{}' not found in active profile '{}'",
+                    app, current_profile
+                ));
+                return Ok(());
+            }
+
+            let already_in_target = state
+                .shared
+                .profiles
+                .get(&target_profile)
+                .map(|p| p.apps.contains(&app))
+                .unwrap_or(false);
+            if already_in_target {
+                state.status_message = Some(format!(
+                    "App '{}' is already in profile '{}'",
+                    app, target_profile
+                ));
+                return Ok(());
+            }
+
+            if let Err(e) =
+                linker::copy_to(&app, &current_profile, &target_profile, &state.roost_dir)
+            {
+                state.status_message = Some(format!("Error copying '{}': {}", app, e));
+                return Ok(());
+            }
+
+            if let Some(profile) = state.shared.profiles.get_mut(&target_profile) {
+                profile.apps.insert(app.clone());
+            }
+
+            if let Some(app_entry) = state.shared.apps.get_mut(&app) {
+                app_entry.on_profiles.insert(target_profile.clone());
+            }
+
+            if let Err(e) =
+                app::save_shared(&app::shared_config_path(&state.roost_dir), &state.shared)
+            {
+                state.status_message = Some(format!("Error saving config: {}", e));
+                return Ok(());
+            }
+
+            state.pending_auto_commit = Some(format!("copy: {} to {}", app, target_profile));
+            state.status_message = Some(format!("Copied '{}' to '{}'", app, target_profile));
+            state.sync_miller_to_selected_app();
         }
         Action::SuspendForAddApp => {
             let roost_dir = state.roost_dir.clone();

@@ -36,6 +36,8 @@ fn main() -> Result<()> {
         Some(Commands::List { profile }) => cmd_list(profile),
         Some(Commands::Save { message }) => cmd_save(message),
         Some(Commands::Status) => cmd_status(),
+        Some(Commands::Import { app, from }) => cmd_import(&app, &from),
+        Some(Commands::Copy { app, to }) => cmd_copy(&app, &to),
         Some(Commands::Completions { shell }) => cmd_completions(shell),
     }
 }
@@ -100,6 +102,134 @@ fn cmd_status() -> Result<()> {
         style("Last commit:").bold(),
         style(&last_commit).white()
     );
+    Ok(())
+}
+
+fn cmd_import(app_name: &str, source_profile: &str) -> Result<()> {
+    let (mut shared, mut local, roost_dir) = load_configs()?;
+    let current_profile = local.active_profile.clone();
+    let shared_path = app::shared_config_path(&roost_dir);
+    let local_path = app::local_config_path(&roost_dir);
+
+    if !shared.profiles.contains_key(source_profile) {
+        bail!("Source profile '{}' not found.", source_profile);
+    }
+    if current_profile == source_profile {
+        bail!("Cannot import from the same profile.");
+    }
+    if !shared.profiles[source_profile].apps.contains(app_name) {
+        bail!(
+            "App '{}' not found in profile '{}'.",
+            app_name,
+            source_profile
+        );
+    }
+    if shared
+        .profiles
+        .get(&current_profile)
+        .map(|p| p.apps.contains(app_name))
+        .unwrap_or(false)
+    {
+        bail!(
+            "App '{}' is already in profile '{}'.",
+            app_name,
+            current_profile
+        );
+    }
+
+    linker::import_from(app_name, source_profile, &current_profile, &roost_dir)?;
+
+    if let Some(profile) = shared.profiles.get_mut(&current_profile) {
+        profile.apps.insert(app_name.to_string());
+        profile
+            .app_sources
+            .insert(app_name.to_string(), source_profile.to_string());
+    }
+    if let Some(app_entry) = shared.apps.get_mut(app_name) {
+        app_entry.on_profiles.insert(current_profile.clone());
+    }
+
+    app::save_shared(&shared_path, &shared)?;
+
+    let actions = linker::ensure_links(&shared, &mut local, &roost_dir)?;
+    app::save_local(&local_path, &local)?;
+
+    git::save(
+        &roost_dir,
+        &format!("import: {} from {}", app_name, source_profile),
+    )?;
+
+    println!(
+        "{} '{}' from '{}'",
+        style("Imported").green(),
+        style(app_name).cyan(),
+        style(source_profile).cyan()
+    );
+    for action in &actions {
+        println!("  {}", style(action).dim());
+    }
+
+    Ok(())
+}
+
+fn cmd_copy(app_name: &str, target_profile: &str) -> Result<()> {
+    let (mut shared, local, roost_dir) = load_configs()?;
+    let current_profile = local.active_profile;
+    let shared_path = app::shared_config_path(&roost_dir);
+
+    if !shared.profiles.contains_key(target_profile) {
+        bail!("Target profile '{}' not found.", target_profile);
+    }
+    if current_profile == target_profile {
+        bail!("Cannot copy to the same profile.");
+    }
+    if !shared
+        .profiles
+        .get(&current_profile)
+        .map(|p| p.apps.contains(app_name))
+        .unwrap_or(false)
+    {
+        bail!(
+            "App '{}' not found in active profile '{}'.",
+            app_name,
+            current_profile
+        );
+    }
+    if shared
+        .profiles
+        .get(target_profile)
+        .map(|p| p.apps.contains(app_name))
+        .unwrap_or(false)
+    {
+        bail!(
+            "App '{}' is already in profile '{}'.",
+            app_name,
+            target_profile
+        );
+    }
+
+    linker::copy_to(app_name, &current_profile, target_profile, &roost_dir)?;
+
+    if let Some(profile) = shared.profiles.get_mut(target_profile) {
+        profile.apps.insert(app_name.to_string());
+    }
+    if let Some(app_entry) = shared.apps.get_mut(app_name) {
+        app_entry.on_profiles.insert(target_profile.to_string());
+    }
+
+    app::save_shared(&shared_path, &shared)?;
+    git::save(
+        &roost_dir,
+        &format!("copy: {} to {}", app_name, target_profile),
+    )?;
+
+    println!(
+        "{} '{}' to '{}'",
+        style("Copied").green(),
+        style(app_name).cyan(),
+        style(target_profile).cyan()
+    );
+
     Ok(())
 }
 
