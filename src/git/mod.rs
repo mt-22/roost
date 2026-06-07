@@ -559,13 +559,15 @@ pub fn safe_rollback(
         } else {
             format!("{}/misc/{}", profile_name, app_name)
         };
-        if let Err(e) = run_git(roost_dir, &["checkout", hash, "--", &rel_path]) {
-            eprintln!("note: could not checkout {}: {}", rel_path, e);
-        }
+        run_git(roost_dir, &["checkout", hash, "--", &rel_path])?;
     }
 
     run_git(roost_dir, &["checkout", hash, "--", "roost.toml"])?;
-    let _ = run_git(roost_dir, &["checkout", hash, "--", ".gitignore"]);
+    if let Err(e) = run_git(roost_dir, &["checkout", hash, "--", ".gitignore"]) {
+        if !e.to_string().contains("did not match any file(s) known to git") {
+            return Err(e);
+        }
+    }
 
     // Phase 3: Reload and repair config
     let shared_path = crate::app::shared_config_path(roost_dir);
@@ -597,10 +599,8 @@ pub fn safe_rollback(
     }
 
     crate::app::save_shared(&shared_path, &shared)?;
-    let _ = crate::gitignore::regenerate(roost_dir, &shared.ignored, &shared.apps);
-    if let Err(e) = crate::linker::ensure_links(&shared, &mut local, roost_dir) {
-        eprintln!("warning: ensure_links encountered errors: {}", e);
-    }
+    crate::gitignore::regenerate(roost_dir, &shared.ignored, &shared.apps)?;
+    crate::linker::ensure_links(&shared, &mut local, roost_dir)?;
     crate::app::save_local(&local_path, &local)?;
 
     // Phase 4: Commit

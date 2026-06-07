@@ -290,3 +290,81 @@ apps = ["appA", "appB"]
     // appA should still be in the config
     assert!(new_shared.apps.contains_key("appA"));
 }
+
+#[test]
+fn safe_rollback_fails_on_ensure_links_error_and_does_not_commit() {
+    let tmp = setup_git_repo();
+    let profile = "default";
+
+    // Commit 1: appA exists
+    let config1 = r#"
+[apps.appA]
+is_dir = true
+on_profiles = ["default"]
+
+[profiles.default]
+apps = ["appA"]
+"#;
+    fs::write(tmp.path().join("roost.toml"), config1).unwrap();
+    fs::create_dir_all(tmp.path().join("default").join("appA")).unwrap();
+    fs::write(tmp.path().join("default/appA/file1.txt"), "original").unwrap();
+    save(tmp.path(), "add appA").unwrap();
+    let target_hash = log(tmp.path(), 1).unwrap()[0].hash.clone();
+
+    // Commit 2: appB is added
+    let config2 = r#"
+[apps.appA]
+is_dir = true
+on_profiles = ["default"]
+
+[apps.appB]
+is_dir = true
+on_profiles = ["default"]
+
+[profiles.default]
+apps = ["appA", "appB"]
+"#;
+    fs::write(tmp.path().join("roost.toml"), config2).unwrap();
+    fs::create_dir_all(tmp.path().join("default").join("appB")).unwrap();
+    fs::write(tmp.path().join("default/appB/file2.txt"), "new app").unwrap();
+    save(tmp.path(), "add appB").unwrap();
+
+    // Set up a link_path that points to a real file (not a symlink)
+    // so ensure_links will try to back it up
+    let origin_path = tmp.path().join("origin_appA");
+    fs::write(&origin_path, "real file").unwrap();
+
+    // Create .backups as a FILE so create_dir_all fails
+    fs::write(tmp.path().join(".backups"), "not a dir").unwrap();
+
+    let pre_shared = crate::app::load_shared(&crate::app::shared_config_path(tmp.path())).unwrap();
+    let pre_local = crate::app::LocalAppConfig {
+        active_profile: profile.to_string(),
+        os_info: crate::os_detect::OsInfo {
+            os: "test".to_string(),
+            arch: "test".to_string(),
+        },
+        link_paths: [("appA".to_string(), origin_path.clone())].into(),
+    };
+
+    // safe_rollback should fail because ensure_links can't create backup dir
+    let result = super::safe_rollback(tmp.path(), &target_hash, &pre_shared, &pre_local, profile);
+    assert!(
+        result.is_err(),
+        "safe_rollback should fail when ensure_links cannot create backups"
+    );
+
+    // No "rollback to ..." commit should have been made
+    let commits = log(tmp.path(), 10).unwrap();
+    let has_rollback = commits.iter().any(|c| c.message.contains("rollback to"));
+    assert!(
+        !has_rollback,
+        "rollback should not commit after critical repair failure"
+    );
+
+    // The real file at origin should NOT have been removed
+    assert!(
+        origin_path.exists(),
+        "origin file should not be removed after failed rollback"
+    );
+}
