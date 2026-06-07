@@ -58,6 +58,22 @@ pub enum Commands {
         message: Option<String>,
     },
     Status,
+    /// Import an app from another profile via symlink (zero-copy).
+    ///
+    /// The app will appear in both profiles but files stay in the source profile.
+    Import {
+        app: String,
+        #[arg(long)]
+        from: String,
+    },
+    /// Copy an app from the active profile to another profile (physical copy).
+    ///
+    /// Creates an independent copy of the app's files in the target profile.
+    Copy {
+        app: String,
+        #[arg(long)]
+        to: String,
+    },
     /// Generate shell completion scripts for supported shells.
     ///
     /// Prints a completion script to stdout for the given shell.

@@ -2,6 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::path::PathBuf;
 
 use crate::tui::confirm::{ConfirmAction, ConfirmDialog};
+use crate::tui::main_view::dialogs::AppLinkAction;
 use crate::tui::main_view::state::{Focus, MainViewState, SearchState, SearchTarget};
 
 /// Side effects produced by a single keypress.
@@ -933,7 +934,6 @@ fn handle_app_link(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                         0
                     }
                 }
-                AppLinkStep::ConfirmCopy => 0,
             };
             app_link.move_down(max);
             vec![Action::Nop]
@@ -945,8 +945,23 @@ fn handle_app_link(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                     names.sort();
                     if let Some(name) = names.get(app_link.cursor) {
                         let name = name.to_string();
-                        app_link.selected_profile = Some(name);
-                        app_link.advance_step();
+                        if app_link.action == AppLinkAction::Copy {
+                            // For copy: open standard confirm dialog directly
+                            if let Some(app) = state.selected_app().cloned() {
+                                state.app_link_dialog = None;
+                                state.pending_action = Some(Action::CopyApp {
+                                    app: app.clone(),
+                                    target_profile: name.clone(),
+                                });
+                                state.confirm_dialog = Some(ConfirmDialog::affirmative(
+                                    "Copy App",
+                                    &format!("Copy '{}' to profile '{}' ?", app, name),
+                                ));
+                            }
+                        } else {
+                            app_link.selected_profile = Some(name);
+                            app_link.advance_step();
+                        }
                     }
                 }
                 AppLinkStep::PickApp => {
@@ -969,18 +984,7 @@ fn handle_app_link(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                         }
                     }
                 }
-                AppLinkStep::ConfirmCopy => {
-                    if let Some(ref profile) = app_link.selected_profile {
-                        let target = profile.clone();
-                        if let Some(app) = state.selected_app().cloned() {
-                            state.app_link_dialog = None;
-                            return vec![Action::CopyApp {
-                                app,
-                                target_profile: target,
-                            }];
-                        }
-                    }
-                }
+
             }
             vec![Action::Nop]
         }

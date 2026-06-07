@@ -929,7 +929,6 @@ fn render_app_link_dialog(
     let step_label = match app_link.step {
         AppLinkStep::PickProfile => "Pick Profile",
         AppLinkStep::PickApp => "Pick App",
-        AppLinkStep::ConfirmCopy => "Confirm",
     };
 
     let block = Block::default()
@@ -1024,18 +1023,6 @@ fn render_app_link_dialog(
                 let cursor_in_view = app_link.cursor.saturating_sub(scroll);
                 list_state.select(Some(cursor_in_view));
                 frame.render_stateful_widget(list, inner, &mut list_state);
-            }
-        }
-        AppLinkStep::ConfirmCopy => {
-            if let Some(ref profile) = app_link.selected_profile {
-                if let Some(app) = state.selected_app() {
-                    let confirm_text = format!("Copy '{}' to profile '{}' ?", app, profile);
-                    let line = Line::from(vec![Span::styled(
-                        confirm_text,
-                        Style::default().fg(Color::White),
-                    )]);
-                    frame.render_widget(Paragraph::new(line), inner);
-                }
             }
         }
     }

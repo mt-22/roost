@@ -14,7 +14,6 @@ pub enum AppLinkAction {
 pub enum AppLinkStep {
     PickProfile,
     PickApp,
-    ConfirmCopy,
 }
 
 pub struct AppLinkState {
@@ -63,15 +62,8 @@ impl AppLinkState {
 
     pub fn advance_step(&mut self) {
         self.step = match self.step {
-            AppLinkStep::PickProfile => {
-                if self.action == AppLinkAction::Copy {
-                    AppLinkStep::ConfirmCopy
-                } else {
-                    AppLinkStep::PickApp
-                }
-            }
+            AppLinkStep::PickProfile => AppLinkStep::PickApp,
             AppLinkStep::PickApp => AppLinkStep::PickProfile,
-            AppLinkStep::ConfirmCopy => AppLinkStep::PickProfile,
         };
         self.cursor = 0;
         self.scroll = 0;
