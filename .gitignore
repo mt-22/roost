@@ -28,5 +28,6 @@
 # Development artifacts / planning
 superpowers/
 .superpowers/
+docs/superpowers/
 plans/
 .plans/
