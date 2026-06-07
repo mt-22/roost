@@ -32,9 +32,9 @@ Roost is a terminal-based dotfile manager that moves your application configurat
 - **Built-in diagnostics** — `roost doctor` checks for broken symlinks, config inconsistencies, orphaned files
 - **Git history** — `diff`, `log`, `undo`, and `rollback` commands for config change management
 - **Fuzzy search** — quickly find apps and files in the TUI
-- **Cross-platform** — works on macOS, Linux, and Windows (with symlink support)
 - **Confidence-scored app detection** — automatically identifies 120+ known applications during setup
 - **Safety features** — atomic config writes, path traversal validation, app name sanitization, and config validation on load
+- *Should be cross-platform **(untested)***
 
 ## Prerequisites
 
