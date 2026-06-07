@@ -1,5 +1,6 @@
 use color_eyre::{Result, eyre::bail};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::app::{
@@ -238,6 +239,12 @@ pub fn delete_profile(
     }
 
     save_shared(&shared_config_path(roost_dir), shared)?;
+
+    // Remove the profile's directory from disk
+    let profile_dir = profile_dir(roost_dir, name);
+    if profile_dir.exists() {
+        fs::remove_dir_all(&profile_dir)?;
+    }
 
     Ok(fallback_msg)
 }
