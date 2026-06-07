@@ -347,6 +347,31 @@ pub fn switch_profile(
                 if let Some(parent) = origin.parent() {
                     fs::create_dir_all(parent)?;
                 }
+                // Handle existing origin (residual symlink/file from prior state)
+                if origin.is_symlink() {
+                    if let Ok(target) = fs::read_link(&origin) {
+                        if target == dest {
+                            continue;
+                        }
+                    }
+                    let backup = roost_dir
+                        .join(BACKUP_DIR_NAME)
+                        .join(format!("conflict-{}", app_name));
+                    fs::create_dir_all(roost_dir.join(BACKUP_DIR_NAME))?;
+                    if backup.exists() {
+                        remove_item(&backup)?;
+                    }
+                    fs::rename(&origin, &backup)?;
+                } else if origin.exists() {
+                    let backup = roost_dir
+                        .join(BACKUP_DIR_NAME)
+                        .join(format!("conflict-{}", app_name));
+                    if backup.exists() {
+                        remove_item(&backup)?;
+                    }
+                    copy_item(&origin, &backup)?;
+                    remove_item(&origin)?;
+                }
                 create_symlink(&dest, &origin, app.is_dir)?;
             }
         }
