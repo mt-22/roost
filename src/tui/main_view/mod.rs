@@ -96,6 +96,7 @@ fn run_loop(
 
     loop {
         if state.needs_redraw {
+            // Best-effort clear — terminal may not be fully initialized yet.
             let _ = terminal.clear();
             state.needs_redraw = false;
         }
@@ -106,10 +107,12 @@ fn run_loop(
         };
         if size.width < MIN_WIDTH || size.height < MIN_HEIGHT {
             let area = Rect::new(0, 0, size.width, size.height);
+            // Terminal draw errors are non-fatal during the render loop.
             let _ = terminal.draw(|f| {
                 render_too_small(f, area);
             });
         } else {
+            // Terminal draw errors are non-fatal during the render loop.
             let _ = terminal.draw(|f| {
                 render(&mut state, f);
             });
@@ -231,7 +234,8 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                             linker::ensure_links(&shared, &mut local, &state.roost_dir)
                         {
                             link_actions = actions;
-                            // Save local.toml in case ensure_links auto-discovered link_paths
+                            // Best-effort save in case ensure_links auto-discovered link_paths.
+                            // The canonical save happens on explicit user save action.
                             let _ = app::save_local(&local_path, &local);
                         }
                         state.reload_configs(shared, local);
@@ -294,8 +298,7 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 return Ok(());
             }
 
-            // Borrow shared immutably and local mutably for switch_profile
-            if let Err(e) = linker::switch_profile(
+            if let Err(e) = crate::ops::switch_profile(
                 &old_profile,
                 &name,
                 &state.shared,
@@ -303,13 +306,6 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                 &state.roost_dir,
             ) {
                 state.status_message = Some(format!("Error switching profile: {}", e));
-                return Ok(());
-            }
-
-            if let Err(e) = app::save_local(&app::local_config_path(&state.roost_dir), &state.local)
-            {
-                state.status_message = Some(format!("Error saving local config: {}", e));
-                state.local.active_profile = old_profile;
                 return Ok(());
             }
 
@@ -359,15 +355,8 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
         }
         Action::DeleteProfile(name) => {
             match crate::ops::delete_profile(&name, &mut state.shared, &mut state.local, &state.roost_dir) {
-                Ok(fallback) => {
-                    if let Some(fb) = fallback {
-                        state.status_message = Some(format!(
-                            "Deleted profile '{}'. Active profile was deleted. Falling back to '{}'.",
-                            name, fb
-                        ));
-                    } else {
-                        state.status_message = Some(format!("Deleted profile '{}'", name));
-                    }
+                Ok(()) => {
+                    state.status_message = Some(format!("Deleted profile '{}'", name));
                     state.profile_dialog = None;
                 }
                 Err(e) => {

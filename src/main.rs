@@ -408,7 +408,8 @@ fn cmd_sync() -> Result<()> {
     // Reload configs since sync may have changed roost.toml via structural merge
     let (shared, mut local, _) = load_configs()?;
     let actions = linker::ensure_links(&shared, &mut local, &roost_dir)?;
-    // Save local.toml in case ensure_links auto-discovered link_paths
+    // Best-effort save in case ensure_links auto-discovered link_paths.
+    // The canonical save happens on explicit user save.
     let local_path = app::local_config_path(&roost_dir);
     let _ = app::save_local(&local_path, &local);
 
@@ -486,8 +487,7 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
                 bail!("Profile '{}' does not exist.", name);
             }
             let old = local.active_profile.clone();
-            linker::switch_profile(&old, &name, &shared, &mut local, &roost_dir)?;
-            app::save_local(&app::local_config_path(&roost_dir), &local)?;
+            roost::ops::switch_profile(&old, &name, &shared, &mut local, &roost_dir)?;
             println!(
                 "{} {}",
                 style("Switched to profile:").green(),
@@ -507,17 +507,7 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
             Ok(())
         }
         ProfileAction::Delete { name } => {
-            let fallback = roost::ops::delete_profile(&name, &mut shared, &mut local, &roost_dir)?;
-            if let Some(fb) = fallback {
-                println!(
-                    "{}",
-                    style(format!(
-                        "Active profile was deleted. Falling back to '{}'.",
-                        fb
-                    ))
-                    .yellow()
-                );
-            }
+            roost::ops::delete_profile(&name, &mut shared, &mut local, &roost_dir)?;
             git::save(&roost_dir, &format!("profile: delete {}", name))?;
             println!(
                 "{} {}",

@@ -1,4 +1,5 @@
 use crate::app::{SharedAppConfig, load_shared, save_shared, shared_config_path};
+use crate::linker::create_symlink;
 use color_eyre::{Result, eyre::bail};
 use std::collections::BTreeSet;
 use std::fs;
@@ -161,7 +162,11 @@ fn backup_conflict_file(roost_dir: &Path, file_path: &str) -> Result<PathBuf> {
 
     let src = roost_dir.join(file_path);
     let dst = backup_dir.join(&backup_name);
-    if src.is_dir() {
+    if src.is_symlink() {
+        let target = fs::read_link(&src)?;
+        fs::remove_file(&src)?;
+        create_symlink(&target, &dst, src.is_dir())?;
+    } else if src.is_dir() {
         copy_dir_recursive(&src, &dst)?;
     } else {
         fs::copy(&src, &dst)?;
@@ -399,12 +404,15 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
                     backups.push(backup);
                 }
             }
-            // check out remote version of conflicting files, then continue rebase
+            // Check out remote version of conflicting files, then continue rebase.
+            // Best-effort: if a single file resolution fails, the rebase --abort below
+            // will clean up the entire failed rebase state.
             for file in &conflict_files {
                 let _ = run_git(roost_dir, &["checkout", "--theirs", file]);
                 let _ = run_git(roost_dir, &["add", file]);
             }
             if let Err(e) = run_git(roost_dir, &["rebase", "--continue"]) {
+                // If rebase --continue itself fails, abort to return to pre-sync state.
                 if is_rebasing(roost_dir) {
                     let _ = run_git(roost_dir, &["rebase", "--abort"]);
                 }
@@ -420,6 +428,8 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
             Ok(_) => {}
             Err(rebase_err) => {
                 let conflict_files = get_conflict_files(roost_dir);
+                // Abort the rebase to return to the pre-sync state.
+                // This is a last-resort recovery; if it fails the repo may be in a rebase state.
                 let _ = run_git(roost_dir, &["rebase", "--abort"]);
 
                 if conflict_files.is_empty() {

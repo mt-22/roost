@@ -207,7 +207,7 @@ pub fn guess_primary_configs(
             // Single-file app (stored in misc/): the app itself is the primary config.
             app.primary_config = Some(original_base.clone());
         } else {
-            let app_dir = roost_dir.join(profile_name).join(app_name);
+            let app_dir = profile_dir(roost_dir, profile_name).join(app_name);
             let entries: Vec<_> = match std::fs::read_dir(&app_dir) {
                 Ok(it) => it.filter_map(|e| e.ok()).collect(),
                 Err(_) => continue,

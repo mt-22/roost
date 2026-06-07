@@ -46,7 +46,7 @@ pub fn validate_path_in_home(path: &Path, home: &Path) -> Result<()> {
 }
 
 // move origin into roost, symlink origin back to roost
-pub fn ingest(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> Result<()> {
+pub fn ingest(origin: &Path, profile_dir: &Path, app_name: &str, is_dir: bool) -> Result<()> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     validate_path_in_home(origin, &home)?;
     crate::app::validate_app_name(app_name)?;
@@ -59,13 +59,13 @@ pub fn ingest(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> 
         bail!("origin already a symlink: {}", origin.display());
     }
 
-    let backup_dest = roost_dir.join(BACKUP_DIR_NAME).join(app_name);
-    fs::create_dir_all(roost_dir.join(BACKUP_DIR_NAME))?;
+    let backup_dest = profile_dir.join(BACKUP_DIR_NAME).join(app_name);
+    fs::create_dir_all(profile_dir.join(BACKUP_DIR_NAME))?;
 
     if !is_dir {
-        fs::create_dir_all(roost_dir.join(MISC_DIR_NAME))?;
+        fs::create_dir_all(profile_dir.join(MISC_DIR_NAME))?;
     }
-    let app_dest = app_dest(roost_dir, app_name, is_dir);
+    let app_dest = app_dest(profile_dir, app_name, is_dir);
 
     // backup before moving
     if origin.is_dir() {
@@ -160,7 +160,8 @@ pub fn unlink(origin: &Path, roost_dir: &Path, app_name: &str, is_dir: bool) -> 
         fs::rename(&dest, origin)?;
     }
 
-    // clean up empty misc/ dir
+    // Clean up empty misc/ dir.
+    // This is best-effort — stale empty dirs are harmless.
     if !is_dir {
         let misc = roost_dir.join(MISC_DIR_NAME);
         if misc.exists() && fs::read_dir(&misc)?.next().is_none() {
@@ -306,6 +307,8 @@ pub fn switch_profile(
         bail!("target profile '{}' does not exist", new_profile);
     }
 
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+
     // remove symlinks for old profile
     let old_dir = profile_dir(roost_dir, old_profile);
     if let Some(old) = config.profiles.get(old_profile) {
@@ -315,7 +318,13 @@ pub fn switch_profile(
                 None => continue,
             };
             let origin = match local.link_paths.get(app_name) {
-                Some(p) => p.clone(),
+                Some(p) => {
+                    if let Err(_) = validate_path_in_home(p, &home) {
+                        // Best-effort cleanup — skip invalid paths
+                        continue;
+                    }
+                    p.clone()
+                }
                 None => continue,
             };
             let dest = app_dest(&old_dir, app_name, app.is_dir);
@@ -324,6 +333,8 @@ pub fn switch_profile(
                 && let Ok(target) = fs::read_link(&origin)
                 && target == dest
             {
+                // Best-effort removal of old symlink during profile switch.
+                // If the symlink was already removed or doesn't exist, we continue.
                 let _ = fs::remove_file(&origin);
             }
         }
@@ -338,7 +349,12 @@ pub fn switch_profile(
                 None => continue,
             };
             let origin = match local.link_paths.get(app_name) {
-                Some(p) => p.clone(),
+                Some(p) => {
+                    if let Err(e) = validate_path_in_home(p, &home) {
+                        bail!("Invalid link_path for '{}': {}", app_name, e);
+                    }
+                    p.clone()
+                }
                 None => continue,
             };
             let dest = app_dest(&new_dir, app_name, app.is_dir);
@@ -387,9 +403,12 @@ pub fn import_from(
     source_profile: &str,
     target_profile: &str,
     roost_dir: &Path,
+    is_dir: bool,
 ) -> Result<()> {
-    let source_dir = roost_dir.join(source_profile).join(app_name);
-    let target_dir = roost_dir.join(target_profile).join(app_name);
+    let source_pdir = profile_dir(roost_dir, source_profile);
+    let target_pdir = profile_dir(roost_dir, target_profile);
+    let source_dir = app_dest(&source_pdir, app_name, is_dir);
+    let target_dir = app_dest(&target_pdir, app_name, is_dir);
 
     if !source_dir.exists() {
         bail!("source path does not exist: {}", source_dir.display());
@@ -405,7 +424,10 @@ pub fn import_from(
         );
     }
 
-    create_symlink(&source_dir, &target_dir, true)?;
+    if let Some(parent) = target_dir.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    create_symlink(&source_dir, &target_dir, is_dir)?;
     Ok(())
 }
 
@@ -415,9 +437,12 @@ pub fn copy_to(
     source_profile: &str,
     target_profile: &str,
     roost_dir: &Path,
+    is_dir: bool,
 ) -> Result<()> {
-    let source_dir = roost_dir.join(source_profile).join(app_name);
-    let target_dir = roost_dir.join(target_profile).join(app_name);
+    let source_pdir = profile_dir(roost_dir, source_profile);
+    let target_pdir = profile_dir(roost_dir, target_profile);
+    let source_dir = app_dest(&source_pdir, app_name, is_dir);
+    let target_dir = app_dest(&target_pdir, app_name, is_dir);
 
     if !source_dir.exists() {
         bail!("source path does not exist: {}", source_dir.display());
@@ -426,8 +451,10 @@ pub fn copy_to(
         bail!("target already exists: {}", target_dir.display());
     }
 
-    fs::create_dir_all(target_dir.parent().unwrap())?;
-    copy_dir_recursive(&source_dir, &target_dir)?;
+    if let Some(parent) = target_dir.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    copy_item(&source_dir, &target_dir)?;
     Ok(())
 }
 

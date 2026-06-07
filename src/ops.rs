@@ -220,35 +220,36 @@ pub fn delete_profile(
     shared: &mut SharedAppConfig,
     local: &mut LocalAppConfig,
     roost_dir: &Path,
-) -> Result<Option<String>> {
+) -> Result<()> {
     validate_profile_name(name)?;
 
     if !shared.profiles.contains_key(name) {
         bail!("Profile '{}' does not exist.", name);
     }
 
-    for app_name in shared.profiles[name].apps.iter() {
-        if let Some(app) = shared.apps.get_mut(app_name) {
-            app.on_profiles.remove(name);
-            if app.on_profiles.is_empty() {
-                shared.apps.remove(app_name);
-            }
-        }
+    if local.active_profile == name {
+        bail!("Cannot delete the active profile. Switch to another profile first.");
+    }
+
+    let empty_apps: Vec<String> = shared.profiles[name]
+        .apps
+        .iter()
+        .filter_map(|app_name| {
+            shared.apps.get_mut(app_name).map(|app| {
+                app.on_profiles.remove(name);
+                if app.on_profiles.is_empty() {
+                    Some(app_name.clone())
+                } else {
+                    None
+                }
+            })
+        })
+        .flatten()
+        .collect();
+    for app_name in empty_apps {
+        shared.apps.remove(&app_name);
     }
     shared.profiles.remove(name);
-
-    let mut fallback_msg = None;
-    if local.active_profile == name {
-        let fallback = shared
-            .profiles
-            .keys()
-            .next()
-            .cloned()
-            .unwrap_or_else(|| "default".to_string());
-        local.active_profile = fallback.clone();
-        save_local(&local_config_path(roost_dir), local)?;
-        fallback_msg = Some(fallback);
-    }
 
     save_shared(&shared_config_path(roost_dir), shared)?;
 
@@ -258,7 +259,20 @@ pub fn delete_profile(
         fs::remove_dir_all(&profile_dir)?;
     }
 
-    Ok(fallback_msg)
+    Ok(())
+}
+
+/// Switch the active profile, relinking all symlinks.
+pub fn switch_profile(
+    old_profile: &str,
+    new_profile: &str,
+    config: &SharedAppConfig,
+    local: &mut LocalAppConfig,
+    roost_dir: &Path,
+) -> Result<()> {
+    linker::switch_profile(old_profile, new_profile, config, local, roost_dir)?;
+    save_local(&local_config_path(roost_dir), local)?;
+    Ok(())
 }
 
 /// Rename a profile.
@@ -356,7 +370,8 @@ pub fn import_app(
         );
     }
 
-    linker::import_from(app_name, source_profile, &current_profile, roost_dir)?;
+    let is_dir = shared.apps.get(app_name).map(|a| a.is_dir).unwrap_or(false);
+    linker::import_from(app_name, source_profile, &current_profile, roost_dir, is_dir)?;
 
     if let Some(profile) = shared.profiles.get_mut(&current_profile) {
         profile.apps.insert(app_name.to_string());
@@ -431,7 +446,8 @@ pub fn copy_app(
         );
     }
 
-    linker::copy_to(app_name, &current_profile, target_profile, roost_dir)?;
+    let is_dir = shared.apps.get(app_name).map(|a| a.is_dir).unwrap_or(false);
+    linker::copy_to(app_name, &current_profile, target_profile, roost_dir, is_dir)?;
 
     if let Some(profile) = shared.profiles.get_mut(target_profile) {
         profile.apps.insert(app_name.to_string());

@@ -237,7 +237,7 @@ fn import_from_creates_chain() {
     // shared profile owns the real nvim config
     create_dir(&roost.join("shared"), "nvim");
 
-    import_from("nvim", "shared", "laptop", &roost).unwrap();
+    import_from("nvim", "shared", "laptop", &roost, true).unwrap();
 
     // laptop/nvim is now a symlink pointing to shared/nvim (zero-copy)
     let target = roost.join("laptop/nvim");
@@ -246,12 +246,32 @@ fn import_from_creates_chain() {
 }
 
 #[test]
+fn import_from_creates_chain_for_file_app() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "shared");
+    let _ = setup_profile(&tmp, "laptop");
+
+    let misc = roost.join("shared").join(MISC_DIR_NAME);
+    fs::create_dir_all(&misc).unwrap();
+    fs::write(misc.join("gitconfig"), "config").unwrap();
+
+    import_from("gitconfig", "shared", "laptop", &roost, false).unwrap();
+
+    let source = app_dest(&profile_dir(&roost, "shared"), "gitconfig", false);
+    let target = app_dest(&profile_dir(&roost, "laptop"), "gitconfig", false);
+
+    assert!(source.exists());
+    assert!(target.is_symlink());
+    assert_eq!(fs::read_link(&target).unwrap(), source);
+}
+
+#[test]
 fn import_from_rejects_missing_source() {
     let tmp = TempDir::new().unwrap();
     let roost = setup_profile(&tmp, "shared");
     let _ = setup_profile(&tmp, "laptop");
 
-    let result = import_from("nvim", "shared", "laptop", &roost);
+    let result = import_from("nvim", "shared", "laptop", &roost, true);
     assert!(result.is_err());
 }
 
@@ -266,7 +286,7 @@ fn import_from_rejects_symlink_source() {
     let source_path = roost.join("shared/nvim");
     create_symlink(&real_target, &source_path, true).unwrap();
 
-    let result = import_from("nvim", "shared", "laptop", &roost);
+    let result = import_from("nvim", "shared", "laptop", &roost, true);
     assert!(result.is_err());
 }
 
@@ -281,13 +301,34 @@ fn copy_to_creates_independent_copy() {
     let nvim = create_dir(&roost.join("shared"), "nvim");
     create_file(&nvim, "init.lua");
 
-    copy_to("nvim", "shared", "laptop", &roost).unwrap();
+    copy_to("nvim", "shared", "laptop", &roost, true).unwrap();
 
     // independent copy — not a symlink, edits don't affect source
     let target = roost.join("laptop/nvim");
     assert!(target.is_dir());
     assert!(target.join("init.lua").exists());
     assert!(!target.is_symlink());
+}
+
+#[test]
+fn copy_to_creates_independent_copy_for_file_app() {
+    let tmp = TempDir::new().unwrap();
+    let roost = setup_profile(&tmp, "shared");
+    let _ = setup_profile(&tmp, "laptop");
+
+    let misc = roost.join("shared").join(MISC_DIR_NAME);
+    fs::create_dir_all(&misc).unwrap();
+    fs::write(misc.join("gitconfig"), "config content").unwrap();
+
+    copy_to("gitconfig", "shared", "laptop", &roost, false).unwrap();
+
+    let source = app_dest(&profile_dir(&roost, "shared"), "gitconfig", false);
+    let target = app_dest(&profile_dir(&roost, "laptop"), "gitconfig", false);
+
+    assert!(source.exists());
+    assert!(target.exists());
+    assert!(!target.is_symlink());
+    assert_eq!(fs::read_to_string(&target).unwrap(), "config content");
 }
 
 #[test]
@@ -299,7 +340,7 @@ fn copy_to_rejects_existing_target() {
     create_dir(&roost.join("shared"), "nvim");
     create_dir(&roost.join("laptop"), "nvim");
 
-    let result = copy_to("nvim", "shared", "laptop", &roost);
+    let result = copy_to("nvim", "shared", "laptop", &roost, true);
     assert!(result.is_err());
 }
 
