@@ -25,6 +25,9 @@
 .aider/
 .continue/
 
+# Git worktrees
+.worktrees/
+
 # Development artifacts / planning
 superpowers/
 .superpowers/
