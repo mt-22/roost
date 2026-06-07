@@ -79,7 +79,8 @@ pub fn add_app(
     })
 }
 
-/// Remove an app from the active profile, restore its files to the origin.
+/// Remove an app from the active profile. If no other profile references it,
+/// restore files to the origin. Otherwise just remove the profile reference.
 pub fn remove_app(
     app_name: &str,
     shared: &mut SharedAppConfig,
@@ -90,23 +91,45 @@ pub fn remove_app(
 
     let profile_name = local.active_profile.clone();
     validate_profile_name(&profile_name)?;
-    let pdir = profile_dir(roost_dir, &profile_name);
 
-    let app_entry = shared
+    // Extract needed data before mutable borrows
+    let is_dir = shared
         .apps
         .get(app_name)
-        .ok_or_else(|| color_eyre::eyre::eyre!("App '{}' not found.", app_name))?;
+        .map(|a| a.is_dir)
+        .unwrap_or(true);
     let origin = local
         .link_paths
         .get(app_name)
+        .cloned()
         .ok_or_else(|| color_eyre::eyre::eyre!("No link path for '{}'.", app_name))?;
 
-    linker::unlink(origin, &pdir, app_name, app_entry.is_dir)?;
-
-    shared.apps.remove(app_name);
+    // Remove from current profile
     if let Some(profile) = shared.profiles.get_mut(&profile_name) {
+        profile.app_sources.remove(app_name);
         profile.apps.remove(app_name);
     }
+
+    if let Some(app_entry) = shared.apps.get_mut(app_name) {
+        app_entry.on_profiles.remove(&profile_name);
+    }
+
+    // Check if any other profile still references this app
+    let other_profiles_have_it = shared
+        .profiles
+        .values()
+        .any(|p| p.apps.contains(app_name));
+
+    if other_profiles_have_it {
+        save_shared(&shared_config_path(roost_dir), shared)?;
+        return Ok(());
+    }
+
+    // This was the last profile — fully remove the app
+    let pdir = profile_dir(roost_dir, &profile_name);
+    linker::unlink(&origin, &pdir, app_name, is_dir)?;
+
+    shared.apps.remove(app_name);
     local.link_paths.remove(app_name);
 
     save_shared(&shared_config_path(roost_dir), shared)?;
