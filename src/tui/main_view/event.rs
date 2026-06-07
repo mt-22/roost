@@ -451,8 +451,18 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             }
             vec![Action::Nop]
         }
-        // KeyCode::Char('f') — import from profile (planned, not yet available)
-        // KeyCode::Char('m') — copy to profile (planned, not yet available)
+        KeyCode::Char('f') if state.focus == Focus::AppsPanel => {
+            state.app_link_dialog = Some(crate::tui::main_view::dialogs::AppLinkState::new(
+                crate::tui::main_view::dialogs::AppLinkAction::Import,
+            ));
+            vec![Action::Nop]
+        }
+        KeyCode::Char('m') if state.focus == Focus::AppsPanel => {
+            state.app_link_dialog = Some(crate::tui::main_view::dialogs::AppLinkState::new(
+                crate::tui::main_view::dialogs::AppLinkAction::Copy,
+            ));
+            vec![Action::Nop]
+        }
 
         // Files-panel actions
         KeyCode::Char('e') | KeyCode::Enter if state.focus == Focus::FilesPanel => {
