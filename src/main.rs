@@ -3,7 +3,6 @@ use color_eyre::{Result, eyre::bail};
 use dialoguer::{console::style, theme::ColorfulTheme};
 use roost::cli::{Cli, Commands, ProfileAction, ProfileCmd};
 use roost::{app, git, init, linker, logo, pager, tui};
-use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 fn main() -> Result<()> {
@@ -107,129 +106,36 @@ fn cmd_status() -> Result<()> {
 
 fn cmd_import(app_name: &str, source_profile: &str) -> Result<()> {
     let (mut shared, mut local, roost_dir) = load_configs()?;
-    let current_profile = local.active_profile.clone();
-    let shared_path = app::shared_config_path(&roost_dir);
-    let local_path = app::local_config_path(&roost_dir);
-
-    if !shared.profiles.contains_key(source_profile) {
-        bail!("Source profile '{}' not found.", source_profile);
-    }
-    if current_profile == source_profile {
-        bail!("Cannot import from the same profile.");
-    }
-    if !shared.profiles[source_profile].apps.contains(app_name) {
-        bail!(
-            "App '{}' not found in profile '{}'.",
-            app_name,
-            source_profile
-        );
-    }
-    if shared
-        .profiles
-        .get(&current_profile)
-        .map(|p| p.apps.contains(app_name))
-        .unwrap_or(false)
-    {
-        bail!(
-            "App '{}' is already in profile '{}'.",
-            app_name,
-            current_profile
-        );
-    }
-
-    linker::import_from(app_name, source_profile, &current_profile, &roost_dir)?;
-
-    if let Some(profile) = shared.profiles.get_mut(&current_profile) {
-        profile.apps.insert(app_name.to_string());
-        profile
-            .app_sources
-            .insert(app_name.to_string(), source_profile.to_string());
-    }
-    if let Some(app_entry) = shared.apps.get_mut(app_name) {
-        app_entry.on_profiles.insert(current_profile.clone());
-    }
-
-    app::save_shared(&shared_path, &shared)?;
-
-    let actions = linker::ensure_links(&shared, &mut local, &roost_dir)?;
-    app::save_local(&local_path, &local)?;
-
+    let result = roost::ops::import_app(app_name, source_profile, &mut shared, &mut local, &roost_dir)?;
     git::save(
         &roost_dir,
         &format!("import: {} from {}", app_name, source_profile),
     )?;
-
     println!(
         "{} '{}' from '{}'",
         style("Imported").green(),
         style(app_name).cyan(),
         style(source_profile).cyan()
     );
-    for action in &actions {
+    for action in &result.link_actions {
         println!("  {}", style(action).dim());
     }
-
     Ok(())
 }
 
 fn cmd_copy(app_name: &str, target_profile: &str) -> Result<()> {
     let (mut shared, local, roost_dir) = load_configs()?;
-    let current_profile = local.active_profile;
-    let shared_path = app::shared_config_path(&roost_dir);
-
-    if !shared.profiles.contains_key(target_profile) {
-        bail!("Target profile '{}' not found.", target_profile);
-    }
-    if current_profile == target_profile {
-        bail!("Cannot copy to the same profile.");
-    }
-    if !shared
-        .profiles
-        .get(&current_profile)
-        .map(|p| p.apps.contains(app_name))
-        .unwrap_or(false)
-    {
-        bail!(
-            "App '{}' not found in active profile '{}'.",
-            app_name,
-            current_profile
-        );
-    }
-    if shared
-        .profiles
-        .get(target_profile)
-        .map(|p| p.apps.contains(app_name))
-        .unwrap_or(false)
-    {
-        bail!(
-            "App '{}' is already in profile '{}'.",
-            app_name,
-            target_profile
-        );
-    }
-
-    linker::copy_to(app_name, &current_profile, target_profile, &roost_dir)?;
-
-    if let Some(profile) = shared.profiles.get_mut(target_profile) {
-        profile.apps.insert(app_name.to_string());
-    }
-    if let Some(app_entry) = shared.apps.get_mut(app_name) {
-        app_entry.on_profiles.insert(target_profile.to_string());
-    }
-
-    app::save_shared(&shared_path, &shared)?;
+    roost::ops::copy_app(app_name, target_profile, &mut shared, &local, &roost_dir)?;
     git::save(
         &roost_dir,
         &format!("copy: {} to {}", app_name, target_profile),
     )?;
-
     println!(
         "{} '{}' to '{}'",
         style("Copied").green(),
         style(app_name).cyan(),
         style(target_profile).cyan()
     );
-
     Ok(())
 }
 
@@ -347,7 +253,6 @@ fn cmd_log() -> Result<()> {
 
 fn cmd_ignore(app: Option<String>, list: bool, pattern: Option<String>) -> Result<()> {
     let (mut shared, _, roost_dir) = load_configs()?;
-    let shared_path = app::shared_config_path(&roost_dir);
 
     if list || pattern.is_none() {
         // List current rules
@@ -379,13 +284,11 @@ fn cmd_ignore(app: Option<String>, list: bool, pattern: Option<String>) -> Resul
 
     let pattern = pattern.unwrap();
 
-    if let Some(app_name) = app {
-        let app_entry = shared
-            .apps
-            .get_mut(&app_name)
-            .ok_or_else(|| color_eyre::eyre::eyre!("App '{}' not found.", app_name))?;
-        if !app_entry.ignore.contains(&pattern) {
-            app_entry.ignore.push(pattern.clone());
+    let app_ref = app.as_deref();
+    let changed = roost::ops::add_ignore(app_ref, &pattern, &mut shared, &roost_dir)?;
+
+    if changed {
+        if let Some(app_name) = app {
             println!(
                 "{} {} {}",
                 style("Added per-app ignore").green(),
@@ -394,17 +297,19 @@ fn cmd_ignore(app: Option<String>, list: bool, pattern: Option<String>) -> Resul
             );
         } else {
             println!(
-                "{} {} {}",
-                style("Pattern already exists for").yellow(),
-                style(&app_name).cyan(),
+                "{} {}",
+                style("Added global ignore").green(),
                 style(&pattern).white()
             );
         }
+        git::save(&roost_dir, &format!("ignore: added {}", pattern))?;
+        println!("{}", style("Updated .gitignore").green());
     } else {
-        if shared.ignored.insert(pattern.clone()) {
+        if let Some(app_name) = app {
             println!(
-                "{} {}",
-                style("Added global ignore").green(),
+                "{} {} {}",
+                style("Pattern already exists for").yellow(),
+                style(&app_name).cyan(),
                 style(&pattern).white()
             );
         } else {
@@ -415,11 +320,6 @@ fn cmd_ignore(app: Option<String>, list: bool, pattern: Option<String>) -> Resul
             );
         }
     }
-
-    app::save_shared(&shared_path, &shared)?;
-    roost::gitignore::regenerate(&roost_dir, &shared.ignored, &shared.apps)?;
-    git::save(&roost_dir, &format!("ignore: added {}", pattern))?;
-    println!("{}", style("Updated .gitignore").green());
     Ok(())
 }
 
@@ -465,16 +365,7 @@ fn cmd_rollback(hash: &str) -> Result<()> {
 
 fn cmd_add(path: &std::path::Path) -> Result<()> {
     let (mut shared, mut local, roost_dir) = load_configs()?;
-    let profile_name = local.active_profile.clone();
-    app::validate_profile_name(&profile_name)?;
-    let pdir = app::profile_dir(&roost_dir, &profile_name);
 
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    linker::validate_path_in_home(path, &home)?;
-
-    if !path.exists() {
-        bail!("Path '{}' does not exist.", path.display());
-    }
     let is_dir = path.is_dir();
     let file_name = path
         .file_name()
@@ -492,35 +383,9 @@ fn cmd_add(path: &std::path::Path) -> Result<()> {
     if app_name.is_empty() {
         bail!("Cannot determine app name from path.");
     }
-    if shared.apps.contains_key(&app_name) {
-        bail!("App '{}' already managed.", app_name);
-    }
-    linker::ingest(path, &pdir, &app_name, is_dir)?;
-    shared.apps.insert(
-        app_name.clone(),
-        app::Application {
-            primary_config: None,
-            on_profiles: {
-                let mut s = BTreeSet::new();
-                s.insert(profile_name.clone());
-                s
-            },
-            is_dir,
-            ignore: Vec::new(),
-        },
-    );
-    if let Some(profile) = shared.profiles.get_mut(&profile_name) {
-        profile.apps.insert(app_name.to_string());
-    }
-    local
-        .link_paths
-        .insert(app_name.to_string(), path.to_path_buf());
-    let shared_path = app::shared_config_path(&roost_dir);
-    let local_path = app::local_config_path(&roost_dir);
-    app::save_shared(&shared_path, &shared)?;
-    app::save_local(&local_path, &local)?;
-    let actions = linker::ensure_links(&shared, &mut local, &roost_dir)?;
-    for action in actions {
+
+    let result = roost::ops::add_app(path, &app_name, is_dir, &mut shared, &mut local, &roost_dir)?;
+    for action in &result.link_actions {
         println!("{}", style(action).dim());
     }
     git::save(&roost_dir, &format!("add: {}", app_name))?;
@@ -530,26 +395,7 @@ fn cmd_add(path: &std::path::Path) -> Result<()> {
 
 fn cmd_remove(app_name: &str) -> Result<()> {
     let (mut shared, mut local, roost_dir) = load_configs()?;
-    let profile_name = local.active_profile.clone();
-    let app_entry = shared
-        .apps
-        .get(app_name)
-        .ok_or_else(|| color_eyre::eyre::eyre!("App '{}' not found.", app_name))?;
-    let origin = local
-        .link_paths
-        .get(app_name)
-        .ok_or_else(|| color_eyre::eyre::eyre!("No link path for '{}'.", app_name))?;
-    let pdir = app::profile_dir(&roost_dir, &profile_name);
-    linker::unlink(origin, &pdir, app_name, app_entry.is_dir)?;
-    shared.apps.remove(app_name);
-    if let Some(profile) = shared.profiles.get_mut(&profile_name) {
-        profile.apps.remove(app_name);
-    }
-    local.link_paths.remove(app_name);
-    let shared_path = app::shared_config_path(&roost_dir);
-    let local_path = app::local_config_path(&roost_dir);
-    app::save_shared(&shared_path, &shared)?;
-    app::save_local(&local_path, &local)?;
+    roost::ops::remove_app(app_name, &mut shared, &mut local, &roost_dir)?;
     git::save(&roost_dir, &format!("remove: {}", app_name))?;
     println!("{} {}", style("Removed").green(), style(app_name).cyan());
     Ok(())
@@ -613,8 +459,6 @@ fn cmd_sync() -> Result<()> {
 
 fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
     let (mut shared, mut local, roost_dir) = load_configs()?;
-    let shared_path = app::shared_config_path(&roost_dir);
-    let local_path = app::local_config_path(&roost_dir);
 
     match cmd.action {
         ProfileAction::List => {
@@ -643,7 +487,7 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
             }
             let old = local.active_profile.clone();
             linker::switch_profile(&old, &name, &shared, &mut local, &roost_dir)?;
-            app::save_local(&local_path, &local)?;
+            app::save_local(&app::local_config_path(&roost_dir), &local)?;
             println!(
                 "{} {}",
                 style("Switched to profile:").green(),
@@ -652,25 +496,8 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
             Ok(())
         }
         ProfileAction::Add { name, from } => {
-            if shared.profiles.contains_key(&name) {
-                bail!("Profile '{}' already exists.", name);
-            }
-            let new_profile = if let Some(source_name) = from {
-                let source = shared.profiles.get(&source_name).ok_or_else(|| {
-                    color_eyre::eyre::eyre!("Source profile '{}' not found.", source_name)
-                })?;
-                app::Profile {
-                    apps: source.apps.clone(),
-                    app_sources: source.app_sources.clone(),
-                }
-            } else {
-                app::Profile {
-                    apps: BTreeSet::new(),
-                    app_sources: BTreeMap::new(),
-                }
-            };
-            shared.profiles.insert(name.clone(), new_profile);
-            app::save_shared(&shared_path, &shared)?;
+            let copy_from = from.as_deref();
+            roost::ops::create_profile(&name, copy_from, &mut shared, &local, &roost_dir)?;
             git::save(&roost_dir, &format!("profile: add {}", name))?;
             println!(
                 "{} {}",
@@ -680,37 +507,17 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
             Ok(())
         }
         ProfileAction::Delete { name } => {
-            if !shared.profiles.contains_key(&name) {
-                bail!("Profile '{}' does not exist.", name);
-            }
-            for app_name in shared.profiles[&name].apps.iter() {
-                if let Some(app) = shared.apps.get_mut(app_name) {
-                    app.on_profiles.remove(&name);
-                    if app.on_profiles.is_empty() {
-                        shared.apps.remove(app_name);
-                    }
-                }
-            }
-            shared.profiles.remove(&name);
-            if local.active_profile == name {
-                let fallback = shared
-                    .profiles
-                    .keys()
-                    .next()
-                    .cloned()
-                    .unwrap_or_else(|| "default".to_string());
-                local.active_profile = fallback.clone();
-                app::save_local(&local_path, &local)?;
+            let fallback = roost::ops::delete_profile(&name, &mut shared, &mut local, &roost_dir)?;
+            if let Some(fb) = fallback {
                 println!(
                     "{}",
                     style(format!(
                         "Active profile was deleted. Falling back to '{}'.",
-                        fallback
+                        fb
                     ))
                     .yellow()
                 );
             }
-            app::save_shared(&shared_path, &shared)?;
             git::save(&roost_dir, &format!("profile: delete {}", name))?;
             println!(
                 "{} {}",
@@ -720,35 +527,7 @@ fn cmd_profile(cmd: ProfileCmd) -> Result<()> {
             Ok(())
         }
         ProfileAction::Rename { old, new } => {
-            if !shared.profiles.contains_key(&old) {
-                bail!("Profile '{}' does not exist.", old);
-            }
-            if shared.profiles.contains_key(&new) {
-                bail!("Profile '{}' already exists.", new);
-            }
-            let profile = shared.profiles.remove(&old).unwrap();
-            shared.profiles.insert(new.clone(), profile);
-            for app in shared.apps.values_mut() {
-                if app.on_profiles.remove(&old) {
-                    app.on_profiles.insert(new.clone());
-                }
-            }
-            for profile in shared.profiles.values_mut() {
-                let updates: Vec<(String, String)> = profile
-                    .app_sources
-                    .iter()
-                    .filter(|(_, src)| *src == &old)
-                    .map(|(app_name, _)| (app_name.clone(), new.clone()))
-                    .collect();
-                for (app_name, new_src) in updates {
-                    profile.app_sources.insert(app_name, new_src);
-                }
-            }
-            if local.active_profile == old {
-                local.active_profile = new.clone();
-                app::save_local(&local_path, &local)?;
-            }
-            app::save_shared(&shared_path, &shared)?;
+            roost::ops::rename_profile(&old, &new, &mut shared, &mut local, &roost_dir)?;
             git::save(&roost_dir, &format!("profile: rename {} -> {}", old, new))?;
             println!(
                 "{} {} {}",
@@ -962,7 +741,6 @@ fn cmd_doctor(fix: bool) -> Result<()> {
 fn cmd_adopt() -> Result<()> {
     let (mut shared, local, roost_dir) = load_configs()?;
     let profile_name = local.active_profile.clone();
-    let shared_path = app::shared_config_path(&roost_dir);
     let local_path = app::local_config_path(&roost_dir);
     let pdir = app::profile_dir(&roost_dir, &profile_name);
 
@@ -1011,34 +789,20 @@ fn cmd_adopt() -> Result<()> {
         return Ok(());
     }
 
-    for idx in &selected {
-        let (name, is_dir) = &orphans[*idx];
-        shared.apps.insert(
-            name.clone(),
-            app::Application {
-                primary_config: None,
-                on_profiles: {
-                    let mut s = std::collections::BTreeSet::new();
-                    s.insert(profile_name.clone());
-                    s
-                },
-                is_dir: *is_dir,
-                ignore: Vec::new(),
-            },
-        );
-        if let Some(profile) = shared.profiles.get_mut(&profile_name) {
-            profile.apps.insert(name.clone());
-        }
+    let names: Vec<String> = selected.iter().map(|idx| orphans[*idx].0.clone()).collect();
+    let is_dirs: Vec<bool> = selected.iter().map(|idx| orphans[*idx].1).collect();
+    let adopted_count = roost::ops::adopt_orphans(&names, &is_dirs, &mut shared, &local, &roost_dir)?;
+
+    for name in &names {
         println!("{} {}", style("Adopted").green(), style(name).cyan());
     }
 
-    app::save_shared(&shared_path, &shared)?;
     app::save_local(&local_path, &local)?;
     git::save(&roost_dir, "adopt: registered orphaned apps")?;
 
     println!(
         "{}",
-        style("Done. Run `roost doctor` to verify symlinks.").green()
+        style(format!("Done. {} adopted. Run `roost doctor` to verify symlinks.", adopted_count)).green()
     );
     Ok(())
 }

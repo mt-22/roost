@@ -164,44 +164,17 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
         Action::SetStatus(msg) => state.status_message = Some(msg),
         Action::AutoCommit(msg) => state.pending_auto_commit = Some(msg),
         Action::RemoveApp(app_name) => {
-            let Some(app) = state.shared.apps.get(&app_name) else {
-                state.status_message = Some(format!("App '{}' not found", app_name));
-                return Ok(());
-            };
-            let Some(origin) = state.local.link_paths.get(&app_name) else {
-                state.status_message = Some(format!("No link path for '{}'", app_name));
-                return Ok(());
-            };
-            let profile_name = state.local.active_profile.clone();
-            let pdir = app::profile_dir(&state.roost_dir, &profile_name);
-
-            if let Err(e) = linker::unlink(origin, &pdir, &app_name, app.is_dir) {
-                state.status_message = Some(format!("Error removing {}: {}", app_name, e));
-                return Ok(());
+            match crate::ops::remove_app(&app_name, &mut state.shared, &mut state.local, &state.roost_dir) {
+                Ok(()) => {
+                    state.pending_auto_commit = Some(format!("remove: {}", app_name));
+                    state.status_message = Some(format!("Removed '{}'", app_name));
+                    state.app_cursor = state.app_cursor.min(state.app_count().saturating_sub(1));
+                    state.sync_miller_to_selected_app();
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Error removing {}: {}", app_name, e));
+                }
             }
-
-            state.shared.apps.remove(&app_name);
-            if let Some(profile) = state.shared.profiles.get_mut(&profile_name) {
-                profile.apps.remove(&app_name);
-            }
-            state.local.link_paths.remove(&app_name);
-
-            if let Err(e) =
-                app::save_shared(&app::shared_config_path(&state.roost_dir), &state.shared)
-            {
-                state.status_message = Some(format!("Error saving config: {}", e));
-                return Ok(());
-            }
-            if let Err(e) = app::save_local(&app::local_config_path(&state.roost_dir), &state.local)
-            {
-                state.status_message = Some(format!("Error saving local config: {}", e));
-                return Ok(());
-            }
-
-            state.pending_auto_commit = Some(format!("remove: {}", app_name));
-            state.status_message = Some(format!("Removed '{}'", app_name));
-            state.app_cursor = state.app_cursor.min(state.app_count().saturating_sub(1));
-            state.sync_miller_to_selected_app();
         }
         Action::OpenEditor(path) => {
             let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
@@ -345,28 +318,15 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             state.status_message = Some(format!("Switched to profile '{}'", name));
         }
         Action::SetPrimary { app, path } => {
-            if let Some(app_entry) = state.shared.apps.get_mut(&app) {
-                // Convert internal roost path to original path (symlink target)
-                let resolved = if let Some(original_base) = state.local.link_paths.get(&app) {
-                    let app_dir =
-                        crate::app::profile_dir(&state.roost_dir, &state.local.active_profile)
-                            .join(&app);
-                    if path.starts_with(&app_dir) {
-                        if let Ok(rel) = path.strip_prefix(&app_dir) {
-                            original_base.join(rel)
-                        } else {
-                            path
-                        }
-                    } else {
-                        path
-                    }
-                } else {
-                    path
-                };
-                app_entry.primary_config = Some(resolved);
-                let shared_path = app::shared_config_path(&state.roost_dir);
-                let _ = app::save_shared(&shared_path, &state.shared);
-                state.status_message = Some(format!("Set primary config for '{}'", app));
+            let source: Option<String> = state.selected_app_source().cloned();
+            let source_ref = source.as_deref();
+            match crate::ops::set_primary(&app, &path, source_ref, &mut state.shared, &state.local, &state.roost_dir) {
+                Ok(()) => {
+                    state.status_message = Some(format!("Set primary config for '{}'", app));
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Error setting primary config: {}", e));
+                }
             }
         }
         Action::Refresh => {
@@ -383,213 +343,72 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
         }
         Action::Nop => {}
         Action::CreateProfile { name, copy_current } => {
-            let mut profile = crate::app::Profile {
-                apps: std::collections::BTreeSet::new(),
-                app_sources: std::collections::BTreeMap::new(),
+            let copy_from = if copy_current {
+                Some(state.local.active_profile.as_str())
+            } else {
+                None
             };
-            if copy_current {
-                if let Some(current) = state.shared.profiles.get(&state.local.active_profile) {
-                    profile.apps = current.apps.clone();
-                    profile.app_sources = current.app_sources.clone();
-
-                    // Physically copy app files into the new profile directory.
-                    let source_profile_dir =
-                        crate::app::profile_dir(&state.roost_dir, &state.local.active_profile);
-                    let target_profile_dir = crate::app::profile_dir(&state.roost_dir, &name);
-                    let _ = std::fs::create_dir_all(&target_profile_dir);
-
-                    for app_name in &current.apps {
-                        let is_dir = state
-                            .shared
-                            .apps
-                            .get(app_name)
-                            .map(|a| a.is_dir)
-                            .unwrap_or(true);
-                        let source = crate::linker::app_dest(&source_profile_dir, app_name, is_dir);
-                        let target = crate::linker::app_dest(&target_profile_dir, app_name, is_dir);
-                        if source.exists() && !target.exists() {
-                            if is_dir {
-                                let _ = crate::linker::copy_dir_recursive(&source, &target);
-                            } else {
-                                let _ = std::fs::create_dir_all(
-                                    target.parent().unwrap_or(&target_profile_dir),
-                                );
-                                let _ = std::fs::copy(&source, &target);
-                            }
-                        }
-                    }
+            match crate::ops::create_profile(&name, copy_from, &mut state.shared, &state.local, &state.roost_dir) {
+                Ok(()) => {
+                    state.status_message = Some(format!("Created profile '{}'", name));
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Error creating profile: {}", e));
                 }
             }
-            state.shared.profiles.insert(name.clone(), profile);
-            let shared_path = app::shared_config_path(&state.roost_dir);
-            let _ = app::save_shared(&shared_path, &state.shared);
-            state.status_message = Some(format!("Created profile '{}'", name));
         }
         Action::DeleteProfile(name) => {
-            state.shared.profiles.remove(&name);
-            let shared_path = app::shared_config_path(&state.roost_dir);
-            let _ = app::save_shared(&shared_path, &state.shared);
-            state.profile_dialog = None;
-            state.status_message = Some(format!("Deleted profile '{}'", name));
+            match crate::ops::delete_profile(&name, &mut state.shared, &mut state.local, &state.roost_dir) {
+                Ok(fallback) => {
+                    if let Some(fb) = fallback {
+                        state.status_message = Some(format!(
+                            "Deleted profile '{}'. Active profile was deleted. Falling back to '{}'.",
+                            name, fb
+                        ));
+                    } else {
+                        state.status_message = Some(format!("Deleted profile '{}'", name));
+                    }
+                    state.profile_dialog = None;
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Error deleting profile: {}", e));
+                }
+            }
         }
         Action::ImportApp {
             app,
             source_profile,
         } => {
-            let current_profile = state.local.active_profile.clone();
-
-            let source = match state.shared.profiles.get(&source_profile) {
-                Some(p) => p,
-                None => {
-                    state.status_message = Some(format!(
-                        "Source profile '{}' not found",
-                        source_profile
-                    ));
-                    return Ok(());
+            match crate::ops::import_app(&app, &source_profile, &mut state.shared, &mut state.local, &state.roost_dir) {
+                Ok(_) => {
+                    state.pending_auto_commit = Some(format!("import: {} from {}", app, source_profile));
+                    state.status_message =
+                        Some(format!("Imported '{}' from '{}'", app, source_profile));
+                    state.sync_miller_to_selected_app();
                 }
-            };
-            if !source.apps.contains(&app) {
-                state.status_message = Some(format!(
-                    "App '{}' not found in profile '{}'",
-                    app, source_profile
-                ));
-                return Ok(());
+                Err(e) => {
+                    state.status_message = Some(format!("Error importing '{}': {}", app, e));
+                }
             }
-            if current_profile == source_profile {
-                state.status_message = Some("Cannot import from the same profile".to_string());
-                return Ok(());
-            }
-
-            let already_in_current = state
-                .shared
-                .profiles
-                .get(&current_profile)
-                .map(|p| p.apps.contains(&app))
-                .unwrap_or(false);
-            if already_in_current {
-                state.status_message = Some(format!(
-                    "App '{}' is already in profile '{}'",
-                    app, current_profile
-                ));
-                return Ok(());
-            }
-
-            if let Err(e) =
-                linker::import_from(&app, &source_profile, &current_profile, &state.roost_dir)
-            {
-                state.status_message = Some(format!("Error importing '{}': {}", app, e));
-                return Ok(());
-            }
-
-            if let Some(profile) = state.shared.profiles.get_mut(&current_profile) {
-                profile.apps.insert(app.clone());
-                profile
-                    .app_sources
-                    .insert(app.clone(), source_profile.clone());
-            }
-
-            if let Some(app_entry) = state.shared.apps.get_mut(&app) {
-                app_entry.on_profiles.insert(current_profile.clone());
-            }
-
-            if let Err(e) =
-                app::save_shared(&app::shared_config_path(&state.roost_dir), &state.shared)
-            {
-                state.status_message = Some(format!("Error saving config: {}", e));
-                return Ok(());
-            }
-
-            if let Err(e) =
-                linker::ensure_links(&state.shared, &mut state.local, &state.roost_dir)
-            {
-                state.status_message = Some(format!("Error linking '{}': {}", app, e));
-                return Ok(());
-            }
-            if let Err(e) =
-                app::save_local(&app::local_config_path(&state.roost_dir), &state.local)
-            {
-                state.status_message = Some(format!("Error saving local config: {}", e));
-                return Ok(());
-            }
-
-            state.pending_auto_commit = Some(format!("import: {} from {}", app, source_profile));
-            state.status_message =
-                Some(format!("Imported '{}' from '{}'", app, source_profile));
-            state.sync_miller_to_selected_app();
         }
         Action::CopyApp {
             app,
             target_profile,
         } => {
-            let current_profile = state.local.active_profile.clone();
-
-            if !state.shared.profiles.contains_key(&target_profile) {
-                state.status_message =
-                    Some(format!("Target profile '{}' not found", target_profile));
-                return Ok(());
+            match crate::ops::copy_app(&app, &target_profile, &mut state.shared, &state.local, &state.roost_dir) {
+                Ok(_) => {
+                    state.pending_auto_commit = Some(format!("copy: {} to {}", app, target_profile));
+                    state.status_message = Some(format!("Copied '{}' to '{}'", app, target_profile));
+                    state.sync_miller_to_selected_app();
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Error copying '{}': {}", app, e));
+                }
             }
-            if current_profile == target_profile {
-                state.status_message = Some("Cannot copy to the same profile".to_string());
-                return Ok(());
-            }
-
-            let in_current = state
-                .shared
-                .profiles
-                .get(&current_profile)
-                .map(|p| p.apps.contains(&app))
-                .unwrap_or(false);
-            if !in_current {
-                state.status_message = Some(format!(
-                    "App '{}' not found in active profile '{}'",
-                    app, current_profile
-                ));
-                return Ok(());
-            }
-
-            let already_in_target = state
-                .shared
-                .profiles
-                .get(&target_profile)
-                .map(|p| p.apps.contains(&app))
-                .unwrap_or(false);
-            if already_in_target {
-                state.status_message = Some(format!(
-                    "App '{}' is already in profile '{}'",
-                    app, target_profile
-                ));
-                return Ok(());
-            }
-
-            if let Err(e) =
-                linker::copy_to(&app, &current_profile, &target_profile, &state.roost_dir)
-            {
-                state.status_message = Some(format!("Error copying '{}': {}", app, e));
-                return Ok(());
-            }
-
-            if let Some(profile) = state.shared.profiles.get_mut(&target_profile) {
-                profile.apps.insert(app.clone());
-            }
-
-            if let Some(app_entry) = state.shared.apps.get_mut(&app) {
-                app_entry.on_profiles.insert(target_profile.clone());
-            }
-
-            if let Err(e) =
-                app::save_shared(&app::shared_config_path(&state.roost_dir), &state.shared)
-            {
-                state.status_message = Some(format!("Error saving config: {}", e));
-                return Ok(());
-            }
-
-            state.pending_auto_commit = Some(format!("copy: {} to {}", app, target_profile));
-            state.status_message = Some(format!("Copied '{}' to '{}'", app, target_profile));
-            state.sync_miller_to_selected_app();
         }
         Action::SuspendForAddApp => {
             let roost_dir = state.roost_dir.clone();
-            let profile_name = state.local.active_profile.clone();
+            let _profile_name = state.local.active_profile.clone();
             let ignored: HashSet<String> = state.shared.ignored.iter().cloned().collect();
             let result = suspend_and_run(|| {
                 let home =
@@ -609,7 +428,6 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             state.needs_redraw = true;
             match result {
                 Ok(items) if !items.is_empty() => {
-                    let pdir = crate::app::profile_dir(&roost_dir, &profile_name);
                     let mut added = Vec::new();
                     let mut failures = Vec::new();
                     for item in &items {
@@ -624,41 +442,15 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                             app_name_raw
                         };
                         let app_name = app::sanitize_app_name(app_name_raw);
-                        let app_name = app_name.as_str();
                         let app_name = if app_name.is_empty() {
-                            &item.name
+                            item.name.clone()
                         } else {
                             app_name
                         };
-                        if state.shared.apps.contains_key(app_name) {
-                            failures.push(format!("'{}' already managed", app_name));
-                            continue;
-                        }
                         let is_dir = item.item_type == crate::scanner::ItemType::Dir;
-                        match crate::linker::ingest(&item.path, &pdir, app_name, is_dir) {
-                            Ok(()) => {
-                                state.shared.apps.insert(
-                                    app_name.to_string(),
-                                    crate::app::Application {
-                                        primary_config: None,
-                                        on_profiles: {
-                                            let mut s = std::collections::BTreeSet::new();
-                                            s.insert(profile_name.clone());
-                                            s
-                                        },
-                                        is_dir,
-                                        ignore: Vec::new(),
-                                    },
-                                );
-                                if let Some(profile) = state.shared.profiles.get_mut(&profile_name)
-                                {
-                                    profile.apps.insert(app_name.to_string());
-                                }
-                                state
-                                    .local
-                                    .link_paths
-                                    .insert(app_name.to_string(), item.path.clone());
-                                added.push(app_name.to_string());
+                        match crate::ops::add_app(&item.path, &app_name, is_dir, &mut state.shared, &mut state.local, &roost_dir) {
+                            Ok(result) => {
+                                added.push(result.app_name);
                             }
                             Err(e) => {
                                 failures.push(format!("'{}': {}", app_name, e));
@@ -666,26 +458,6 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                         }
                     }
                     if !added.is_empty() {
-                        let _ = crate::app::guess_primary_configs(
-                            &roost_dir,
-                            &profile_name,
-                            &mut state.shared,
-                            &state.local,
-                        );
-                        let shared_path = crate::app::shared_config_path(&roost_dir);
-                        let local_path = crate::app::local_config_path(&roost_dir);
-                        let _ = crate::app::save_shared(&shared_path, &state.shared);
-                        let _ = crate::app::save_local(&local_path, &state.local);
-                        let _ = crate::gitignore::regenerate(
-                            &roost_dir,
-                            &state.shared.ignored,
-                            &state.shared.apps,
-                        );
-                        let _ = crate::linker::ensure_links(
-                            &state.shared,
-                            &mut state.local,
-                            &roost_dir,
-                        );
                         let names = added.join(", ");
                         state.pending_auto_commit = Some(format!("add: {}", names));
                         state.status_message = Some(format!("Added {} app(s)", added.len()));
@@ -705,27 +477,32 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             }
         }
         Action::AddIgnore(pattern) => {
-            state.shared.ignored.insert(pattern.clone());
-            let shared_path = app::shared_config_path(&state.roost_dir);
-            let _ = app::save_shared(&shared_path, &state.shared);
-            let _ = crate::gitignore::regenerate(
-                &state.roost_dir,
-                &state.shared.ignored,
-                &state.shared.apps,
-            );
-            state.status_message = Some(format!("Added ignore pattern '{}'", pattern));
+            match crate::ops::add_ignore(None, &pattern, &mut state.shared, &state.roost_dir) {
+                Ok(true) => {
+                    state.status_message = Some(format!("Added ignore pattern '{}'", pattern));
+                }
+                Ok(false) => {
+                    state.status_message = Some(format!("Ignore pattern '{}' already exists", pattern));
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Error adding ignore pattern: {}", e));
+                }
+            }
         }
         Action::RemoveIgnore(pattern) => {
-            state.shared.ignored.remove(&pattern);
-            let shared_path = app::shared_config_path(&state.roost_dir);
-            let _ = app::save_shared(&shared_path, &state.shared);
-            let _ = crate::gitignore::regenerate(
-                &state.roost_dir,
-                &state.shared.ignored,
-                &state.shared.apps,
-            );
-            state.ignore_dialog = None;
-            state.status_message = Some(format!("Removed ignore pattern '{}'", pattern));
+            match crate::ops::remove_ignore(None, &pattern, &mut state.shared, &state.roost_dir) {
+                Ok(true) => {
+                    state.ignore_dialog = None;
+                    state.status_message = Some(format!("Removed ignore pattern '{}'", pattern));
+                }
+                Ok(false) => {
+                    state.ignore_dialog = None;
+                    state.status_message = Some(format!("Ignore pattern '{}' not found", pattern));
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Error removing ignore pattern: {}", e));
+                }
+            }
         }
         Action::Undo => {
             let roost_dir = state.roost_dir.clone();

@@ -188,7 +188,7 @@ These rules are binding constraints on all code changes. Violations must be fixe
 
 ### UI/UX Consistency
 - **[R-8]** Unimplemented TUI features MUST be hidden or clearly marked unavailable. No placeholder status messages like "not yet implemented."
-- **[R-9]** CLI and TUI MUST share the same mutation layer. New domain operations (`add_app`, `remove_app`, `create_profile`, `delete_profile`, `rename_profile`, `switch_profile`) live in a shared module (e.g., `src/ops.rs` or `src/service.rs`). `main.rs` and `tui/` are thin input/output adapters only.
+- **[R-9]** CLI and TUI MUST share the same mutation layer. New domain operations (`add_app`, `remove_app`, `create_profile`, `delete_profile`, `rename_profile`, `switch_profile`) live in `src/ops.rs`. `main.rs` and `tui/` are thin input/output adapters only.
 
 ### Documentation Honesty
 - **[R-10]** Every README claim MUST be verified against actual CLI/TUI behavior before release. Documentation that describes stronger behavior than implemented is a bug.

@@ -8,6 +8,7 @@ pub mod init;
 pub mod linker;
 pub mod logo;
 pub mod miller;
+pub mod ops;
 pub mod os_detect;
 pub mod pager;
 pub mod scanner;
