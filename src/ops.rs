@@ -4,8 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::app::{
-    Application, LocalAppConfig, Profile, SharedAppConfig, save_local, save_shared,
-    shared_config_path, local_config_path, profile_dir, validate_app_name, validate_profile_name,
+    Application, LocalAppConfig, Profile, SharedAppConfig, local_config_path, profile_dir,
+    save_local, save_shared, shared_config_path, validate_app_name, validate_profile_name,
 };
 use crate::linker;
 
@@ -80,6 +80,24 @@ pub fn add_app(
     })
 }
 
+pub fn remove_all(
+    shared: &mut SharedAppConfig,
+    local: &mut LocalAppConfig,
+    roost_dir: &Path,
+) -> Result<Vec<String>> {
+    let profile_name = local.active_profile.clone();
+    let apps: Vec<String> = shared
+        .profiles
+        .get(&profile_name)
+        .map(|p| p.apps.iter().cloned().collect())
+        .unwrap_or_default();
+
+    for app in &apps {
+        remove_app(app, shared, local, roost_dir)?;
+    }
+    Ok(apps)
+}
+
 /// Remove an app from the active profile. If no other profile references it,
 /// restore files to the origin. Otherwise just remove the profile reference.
 pub fn remove_app(
@@ -94,11 +112,7 @@ pub fn remove_app(
     validate_profile_name(&profile_name)?;
 
     // Extract needed data before mutable borrows
-    let is_dir = shared
-        .apps
-        .get(app_name)
-        .map(|a| a.is_dir)
-        .unwrap_or(true);
+    let is_dir = shared.apps.get(app_name).map(|a| a.is_dir).unwrap_or(true);
     let origin = local
         .link_paths
         .get(app_name)
@@ -116,17 +130,16 @@ pub fn remove_app(
     }
 
     // Check if any other profile still references this app
-    let other_profiles_have_it = shared
-        .profiles
-        .values()
-        .any(|p| p.apps.contains(app_name));
+    let other_profiles_have_it = shared.profiles.values().any(|p| p.apps.contains(app_name));
 
     // Remove the current profile's roost directory for this app
     let profile_pdir = profile_dir(roost_dir, &profile_name);
     let app_roost_path = if is_dir {
         profile_pdir.join(app_name)
     } else {
-        profile_pdir.join(crate::linker::MISC_DIR_NAME).join(app_name)
+        profile_pdir
+            .join(crate::linker::MISC_DIR_NAME)
+            .join(app_name)
     };
 
     if other_profiles_have_it {
@@ -167,10 +180,9 @@ pub fn create_profile(
 
     let new_profile = if let Some(source_name) = copy_from {
         validate_profile_name(source_name)?;
-        let source = shared
-            .profiles
-            .get(source_name)
-            .ok_or_else(|| color_eyre::eyre::eyre!("Source profile '{}' not found.", source_name))?;
+        let source = shared.profiles.get(source_name).ok_or_else(|| {
+            color_eyre::eyre::eyre!("Source profile '{}' not found.", source_name)
+        })?;
 
         // Physically copy app files into the new profile directory.
         let source_profile_dir = profile_dir(roost_dir, source_name);
@@ -178,11 +190,7 @@ pub fn create_profile(
         std::fs::create_dir_all(&target_profile_dir)?;
 
         for app_name in &source.apps {
-            let is_dir = shared
-                .apps
-                .get(app_name)
-                .map(|a| a.is_dir)
-                .unwrap_or(true);
+            let is_dir = shared.apps.get(app_name).map(|a| a.is_dir).unwrap_or(true);
             let source_path = linker::app_dest(&source_profile_dir, app_name, is_dir);
             let target_path = linker::app_dest(&target_profile_dir, app_name, is_dir);
             if source_path.exists() && !target_path.exists() {
@@ -371,7 +379,13 @@ pub fn import_app(
     }
 
     let is_dir = shared.apps.get(app_name).map(|a| a.is_dir).unwrap_or(false);
-    linker::import_from(app_name, source_profile, &current_profile, roost_dir, is_dir)?;
+    linker::import_from(
+        app_name,
+        source_profile,
+        &current_profile,
+        roost_dir,
+        is_dir,
+    )?;
 
     if let Some(profile) = shared.profiles.get_mut(&current_profile) {
         profile.apps.insert(app_name.to_string());
@@ -447,7 +461,13 @@ pub fn copy_app(
     }
 
     let is_dir = shared.apps.get(app_name).map(|a| a.is_dir).unwrap_or(false);
-    linker::copy_to(app_name, &current_profile, target_profile, roost_dir, is_dir)?;
+    linker::copy_to(
+        app_name,
+        &current_profile,
+        target_profile,
+        roost_dir,
+        is_dir,
+    )?;
 
     if let Some(profile) = shared.profiles.get_mut(target_profile) {
         profile.apps.insert(app_name.to_string());

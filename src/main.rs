@@ -19,7 +19,7 @@ fn main() -> Result<()> {
         }
         Some(Commands::Init) => cmd_init(),
         Some(Commands::Add { path }) => cmd_add(&path),
-        Some(Commands::Remove { app }) => cmd_remove(&app),
+        Some(Commands::Remove { app, all }) => cmd_remove(app, all),
         Some(Commands::Sync) => cmd_sync(),
         Some(Commands::Profile(cmd)) => cmd_profile(cmd),
         Some(Commands::Diff) => cmd_diff(),
@@ -106,7 +106,13 @@ fn cmd_status() -> Result<()> {
 
 fn cmd_import(app_name: &str, source_profile: &str) -> Result<()> {
     let (mut shared, mut local, roost_dir) = load_configs()?;
-    let result = roost::ops::import_app(app_name, source_profile, &mut shared, &mut local, &roost_dir)?;
+    let result = roost::ops::import_app(
+        app_name,
+        source_profile,
+        &mut shared,
+        &mut local,
+        &roost_dir,
+    )?;
     git::save(
         &roost_dir,
         &format!("import: {} from {}", app_name, source_profile),
@@ -393,11 +399,22 @@ fn cmd_add(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-fn cmd_remove(app_name: &str) -> Result<()> {
+fn cmd_remove(app_name: Option<String>, all: bool) -> Result<()> {
     let (mut shared, mut local, roost_dir) = load_configs()?;
-    roost::ops::remove_app(app_name, &mut shared, &mut local, &roost_dir)?;
-    git::save(&roost_dir, &format!("remove: {}", app_name))?;
-    println!("{} {}", style("Removed").green(), style(app_name).cyan());
+    if all {
+        roost::ops::remove_all(&mut shared, &mut local, &roost_dir)?;
+        git::save(
+            &roost_dir,
+            &format!("remove: all apps from profile '{}'", &local.active_profile),
+        )?;
+        println!("{} all apps", style("Removed").green());
+    } else if let Some(app) = app_name {
+        roost::ops::remove_app(&app, &mut shared, &mut local, &roost_dir)?;
+        git::save(&roost_dir, &format!("remove: {}", app))?;
+        println!("{} {}", style("Removed").green(), style(app).cyan());
+    } else {
+        bail!("Specify either an app name or use --all")
+    }
     Ok(())
 }
 
@@ -427,14 +444,19 @@ fn cmd_sync() -> Result<()> {
                 println!("  - {}", style(name).yellow().dim());
             }
         }
-        git::SyncResult::FileConflict { file_conflicts, backups, .. } => {
+        git::SyncResult::FileConflict {
+            file_conflicts,
+            backups,
+            ..
+        } => {
             println!(
                 "{}",
                 style("Sync encountered file conflicts with remote. Rebase was aborted; your local changes are intact.").yellow()
             );
             println!(
                 "{}",
-                style("To resolve: cd ~/.roost && git status, then fix conflicts and re-run sync.").yellow()
+                style("To resolve: cd ~/.roost && git status, then fix conflicts and re-run sync.")
+                    .yellow()
             );
             if !file_conflicts.is_empty() {
                 println!("{}", style("Conflicting files:").yellow());
@@ -443,7 +465,10 @@ fn cmd_sync() -> Result<()> {
                 }
             }
             if !backups.is_empty() {
-                println!("{}", style("Local backups saved to ~/.roost/.backups/sync/").yellow());
+                println!(
+                    "{}",
+                    style("Local backups saved to ~/.roost/.backups/sync/").yellow()
+                );
             }
         }
     }
@@ -781,7 +806,8 @@ fn cmd_adopt() -> Result<()> {
 
     let names: Vec<String> = selected.iter().map(|idx| orphans[*idx].0.clone()).collect();
     let is_dirs: Vec<bool> = selected.iter().map(|idx| orphans[*idx].1).collect();
-    let adopted_count = roost::ops::adopt_orphans(&names, &is_dirs, &mut shared, &local, &roost_dir)?;
+    let adopted_count =
+        roost::ops::adopt_orphans(&names, &is_dirs, &mut shared, &local, &roost_dir)?;
 
     for name in &names {
         println!("{} {}", style("Adopted").green(), style(name).cyan());
@@ -792,7 +818,11 @@ fn cmd_adopt() -> Result<()> {
 
     println!(
         "{}",
-        style(format!("Done. {} adopted. Run `roost doctor` to verify symlinks.", adopted_count)).green()
+        style(format!(
+            "Done. {} adopted. Run `roost doctor` to verify symlinks.",
+            adopted_count
+        ))
+        .green()
     );
     Ok(())
 }
