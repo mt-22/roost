@@ -62,7 +62,11 @@ fn reject_invalid_name(name: &str, kind: &str) -> Result<()> {
         bail!("{} name contains invalid characters: {}", kind, name);
     }
     if name == ".." || name.contains("../") || name.contains("..\\") {
-        bail!("{} name contains parent directory references: {}", kind, name);
+        bail!(
+            "{} name contains parent directory references: {}",
+            kind,
+            name
+        );
     }
     // Reject names that would be hidden or system-reserved on common platforms
     if name.starts_with('.') && name.len() > 1 {

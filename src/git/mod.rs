@@ -30,6 +30,12 @@ pub enum SyncResult {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteHydration {
+    EmptyRemote,
+    Hydrated,
+}
+
 // subprocess runner: sets --git-dir and --work-tree from roost_dir
 fn run_git(roost_dir: &Path, args: &[&str]) -> Result<String> {
     let git_dir = roost_dir.join(".git");
@@ -69,6 +75,20 @@ pub fn init(roost_dir: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+pub fn hydrate_existing_remote(roost_dir: &Path, url: &str) -> Result<RemoteHydration> {
+    fs::create_dir_all(roost_dir)?;
+    if !roost_dir.join(".git").exists() {
+        init(roost_dir)?;
+    }
+    set_remote(roost_dir, url)?;
+    run_git(roost_dir, &["fetch", "origin"])?;
+    if !has_remote_main(roost_dir) {
+        return Ok(RemoteHydration::EmptyRemote);
+    }
+    run_git(roost_dir, &["checkout", "-B", "main", "origin/main"])?;
+    Ok(RemoteHydration::Hydrated)
 }
 
 /// Read a git config value, returning `None` if unset (exit code 1) or empty.
@@ -380,7 +400,53 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
         }
     }
 
-    // write merged config and commit
+    let mut backups: Vec<PathBuf> = Vec::new();
+    if let Err(merge_err) = run_git(
+        roost_dir,
+        &[
+            "merge",
+            "--no-commit",
+            "--no-ff",
+            "--allow-unrelated-histories",
+            "origin/main",
+        ],
+    ) {
+        let conflict_files = get_conflict_files(roost_dir);
+        let file_conflicts: Vec<String> = conflict_files
+            .iter()
+            .filter(|file| file.as_str() != "roost.toml" && file.as_str() != ".gitignore")
+            .cloned()
+            .collect();
+
+        if !file_conflicts.is_empty() {
+            if matches!(preference, ConflictPreference::Remote) {
+                for file in &file_conflicts {
+                    if let Ok(backup) = backup_conflict_file(roost_dir, file) {
+                        backups.push(backup);
+                    }
+                    let _ = run_git(roost_dir, &["checkout", "--theirs", file]);
+                    let _ = run_git(roost_dir, &["add", file]);
+                }
+            } else {
+                let _ = run_git(roost_dir, &["merge", "--abort"]);
+                return Ok(SyncResult::FileConflict {
+                    config_conflicts,
+                    file_conflicts,
+                    backups,
+                    preference,
+                });
+            }
+        } else if conflict_files.is_empty() {
+            let _ = run_git(roost_dir, &["merge", "--abort"]);
+            return Err(color_eyre::eyre::eyre!(
+                "merge failed and no conflict files detected: {}. Check git status.",
+                merge_err
+            ));
+        }
+    }
+
+    // Write Roost's structural config resolution on top of the git merge so
+    // remote profile files are materialized while roost.toml stays coherent.
     save_shared(&local_config_path, &merged)?;
     crate::gitignore::regenerate(roost_dir, &merged.ignored, &merged.apps)?;
     run_git(roost_dir, &["add", "-A"])?;
@@ -391,62 +457,6 @@ pub fn sync(roost_dir: &Path, preference: ConflictPreference) -> Result<SyncResu
         Ok(_) => {}
         Err(e) if e.to_string().contains("nothing to commit") => {}
         Err(e) => return Err(e),
-    }
-
-    // if remote preference, back up conflicting local files before rebase
-    let mut backups: Vec<PathBuf> = Vec::new();
-    if matches!(preference, ConflictPreference::Remote) {
-        // attempt rebase to discover which files conflict
-        if let Err(_rebase_err) = run_git(roost_dir, &["rebase", "origin/main"]) {
-            let conflict_files = get_conflict_files(roost_dir);
-            for file in &conflict_files {
-                if let Ok(backup) = backup_conflict_file(roost_dir, file) {
-                    backups.push(backup);
-                }
-            }
-            // Check out remote version of conflicting files, then continue rebase.
-            // Best-effort: if a single file resolution fails, the rebase --abort below
-            // will clean up the entire failed rebase state.
-            for file in &conflict_files {
-                let _ = run_git(roost_dir, &["checkout", "--theirs", file]);
-                let _ = run_git(roost_dir, &["add", file]);
-            }
-            if let Err(e) = run_git(roost_dir, &["rebase", "--continue"]) {
-                // If rebase --continue itself fails, abort to return to pre-sync state.
-                if is_rebasing(roost_dir) {
-                    let _ = run_git(roost_dir, &["rebase", "--abort"]);
-                }
-                return Err(color_eyre::eyre::eyre!(
-                    "rebase failed after resolving conflicts: {}. Manual resolution may be required.",
-                    e
-                ));
-            }
-        }
-    } else {
-        // local preference: attempt rebase, capture conflicts, abort
-        match run_git(roost_dir, &["rebase", "origin/main"]) {
-            Ok(_) => {}
-            Err(rebase_err) => {
-                let conflict_files = get_conflict_files(roost_dir);
-                // Abort the rebase to return to the pre-sync state.
-                // This is a last-resort recovery; if it fails the repo may be in a rebase state.
-                let _ = run_git(roost_dir, &["rebase", "--abort"]);
-
-                if conflict_files.is_empty() {
-                    return Err(color_eyre::eyre::eyre!(
-                        "rebase failed and no conflict files detected: {}. Check git status.",
-                        rebase_err
-                    ));
-                }
-
-                return Ok(SyncResult::FileConflict {
-                    config_conflicts,
-                    file_conflicts: conflict_files,
-                    backups,
-                    preference,
-                });
-            }
-        }
     }
 
     // push merged/rebased state to remote
@@ -475,10 +485,6 @@ fn get_conflict_files(roost_dir: &Path) -> Vec<String> {
         Ok(output) => output.lines().map(|s| s.to_string()).collect(),
         Err(_) => Vec::new(),
     }
-}
-
-fn is_rebasing(roost_dir: &Path) -> bool {
-    roost_dir.join(".git/rebase-apply").exists() || roost_dir.join(".git/rebase-merge").exists()
 }
 
 pub fn log(roost_dir: &Path, n: usize) -> Result<Vec<CommitInfo>> {
@@ -574,7 +580,10 @@ pub fn safe_rollback(
 
     run_git(roost_dir, &["checkout", hash, "--", "roost.toml"])?;
     if let Err(e) = run_git(roost_dir, &["checkout", hash, "--", ".gitignore"]) {
-        if !e.to_string().contains("did not match any file(s) known to git") {
+        if !e
+            .to_string()
+            .contains("did not match any file(s) known to git")
+        {
             return Err(e);
         }
     }

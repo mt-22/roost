@@ -228,6 +228,12 @@ ignore = []
         ),
     )
     .unwrap();
+    std::fs::create_dir_all(clone_dir.join("default/nvim")).unwrap();
+    std::fs::write(
+        clone_dir.join("default/nvim/init.lua"),
+        "vim.o.number = true\n",
+    )
+    .unwrap();
     setup_git_repo(clone_dir); // already cloned, just ensure identity
     std::process::Command::new("git")
         .args(["config", "user.email", "test@test.com"])
@@ -258,6 +264,7 @@ ignore = []
     // Verify roost.toml now contains nvim
     let contents = std::fs::read_to_string(roost_dir.join("roost.toml")).unwrap();
     assert!(contents.contains("nvim"));
+    assert!(roost_dir.join("default/nvim/init.lua").exists());
 }
 
 #[test]
@@ -326,7 +333,7 @@ ignore = []
 }
 
 #[test]
-fn sync_detects_conflict() {
+fn sync_resolves_config_conflict_without_file_conflict() {
     let tmp = TempDir::new().unwrap();
     let remote_tmp = TempDir::new().unwrap();
     let roost_dir = tmp.path();
@@ -419,13 +426,14 @@ ignore = []
     .unwrap();
     commit_all(roost_dir, "add nvim as dir");
 
-    // Sync with local preference should detect the roost.toml conflict during rebase
-    // and report file conflicts (both branches touched roost.toml)
+    // Sync with local preference should resolve roost.toml structurally instead
+    // of surfacing it as a git file conflict.
     Command::cargo_bin("roost")
         .unwrap()
         .env("ROOST_DIR", roost_dir)
         .arg("sync")
         .assert()
         .success()
-        .stdout(predicate::str::contains("file conflicts"));
+        .stdout(predicate::str::contains("Config conflicts resolved"))
+        .stdout(predicate::str::contains("apps.nvim.is_dir"));
 }

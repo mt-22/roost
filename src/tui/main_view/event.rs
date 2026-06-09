@@ -314,6 +314,24 @@ fn handle_base(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
     ) {
         state.status_message = None;
     }
+
+    if state.selected_app_is_unlinked()
+        && matches!(
+            key.code,
+            KeyCode::Tab
+                | KeyCode::Char('l')
+                | KeyCode::Char('o')
+                | KeyCode::Char('e')
+                | KeyCode::Enter
+                | KeyCode::Char('p')
+        )
+    {
+        return vec![Action::SetStatus(
+            "App is on this profile but has no local path. Switch/create another profile and run roost add <path> there first."
+                .to_string(),
+        )];
+    }
+
     match key.code {
         // Navigation
         KeyCode::Char('j') => {
@@ -984,7 +1002,6 @@ fn handle_app_link(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
                         }
                     }
                 }
-
             }
             vec![Action::Nop]
         }
@@ -1019,5 +1036,86 @@ fn handle_diff_view(state: &mut MainViewState, key: KeyEvent) -> Vec<Action> {
             vec![Action::OpenPager("git_diff".to_string())]
         }
         _ => vec![Action::Nop],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{Application, LocalAppConfig, Profile, SharedAppConfig};
+    use crate::os_detect::OsInfo;
+    use std::collections::{BTreeMap, BTreeSet};
+    use tempfile::TempDir;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn state_with_unlinked_app() -> (TempDir, MainViewState) {
+        let tmp = TempDir::new().unwrap();
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "default".to_string(),
+            Profile {
+                apps: BTreeSet::from(["nvim".to_string()]),
+                app_sources: BTreeMap::new(),
+            },
+        );
+        let mut apps = BTreeMap::new();
+        apps.insert(
+            "nvim".to_string(),
+            Application {
+                primary_config: Some(tmp.path().join("default").join("nvim").join("init.lua")),
+                on_profiles: BTreeSet::from(["default".to_string()]),
+                is_dir: true,
+                ignore: Vec::new(),
+            },
+        );
+        let shared = SharedAppConfig {
+            remote: None,
+            profiles,
+            apps,
+            ignored: BTreeSet::new(),
+        };
+        let local = LocalAppConfig {
+            active_profile: "default".to_string(),
+            os_info: OsInfo {
+                os: "test".to_string(),
+                arch: "test".to_string(),
+            },
+            link_paths: BTreeMap::new(),
+        };
+        let state = MainViewState::new(tmp.path().to_path_buf(), shared, local);
+        (tmp, state)
+    }
+
+    #[test]
+    fn selected_app_without_local_link_path_is_unlinked() {
+        let (_tmp, state) = state_with_unlinked_app();
+
+        assert!(state.selected_app_is_unlinked());
+    }
+
+    #[test]
+    fn unlinked_app_blocks_focus_and_file_actions() {
+        let (_tmp, mut state) = state_with_unlinked_app();
+
+        for code in [
+            KeyCode::Tab,
+            KeyCode::Char('l'),
+            KeyCode::Char('o'),
+            KeyCode::Char('e'),
+            KeyCode::Enter,
+            KeyCode::Char('p'),
+        ] {
+            state.focus = Focus::AppsPanel;
+            state.status_message = None;
+            let actions = handle_event(&mut state, key(code));
+
+            assert_eq!(state.focus, Focus::AppsPanel);
+            assert!(
+                matches!(actions.as_slice(), [Action::SetStatus(message)] if message.contains("no local path"))
+            );
+        }
     }
 }

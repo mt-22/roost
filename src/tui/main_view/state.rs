@@ -149,6 +149,23 @@ impl MainViewState {
         apps.get(self.app_cursor).copied()
     }
 
+    /// Whether an active-profile app has no local origin path on this device.
+    pub fn app_is_unlinked(&self, app_name: &str) -> bool {
+        self.shared
+            .profiles
+            .get(&self.local.active_profile)
+            .map(|profile| profile.apps.contains(app_name))
+            .unwrap_or(false)
+            && !self.local.link_paths.contains_key(app_name)
+    }
+
+    /// Whether the selected app has no local origin path on this device.
+    pub fn selected_app_is_unlinked(&self) -> bool {
+        self.selected_app()
+            .map(|app_name| self.app_is_unlinked(app_name))
+            .unwrap_or(false)
+    }
+
     /// If the selected app is cross-profile linked, returns the source profile name.
     pub fn selected_app_source(&self) -> Option<&String> {
         let app = self.selected_app()?;

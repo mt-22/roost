@@ -167,7 +167,12 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
         Action::SetStatus(msg) => state.status_message = Some(msg),
         Action::AutoCommit(msg) => state.pending_auto_commit = Some(msg),
         Action::RemoveApp(app_name) => {
-            match crate::ops::remove_app(&app_name, &mut state.shared, &mut state.local, &state.roost_dir) {
+            match crate::ops::remove_app(
+                &app_name,
+                &mut state.shared,
+                &mut state.local,
+                &state.roost_dir,
+            ) {
                 Ok(()) => {
                     state.pending_auto_commit = Some(format!("remove: {}", app_name));
                     state.status_message = Some(format!("Removed '{}'", app_name));
@@ -257,7 +262,11 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                     let conflict_list = file_conflicts.join(", ");
                     state.status_message = Some(format!(
                         "Sync conflict: {}. Run 'cd ~/.roost && git status', fix conflicts, then sync again.",
-                        if conflict_list.is_empty() { "file conflicts with remote".to_string() } else { conflict_list }
+                        if conflict_list.is_empty() {
+                            "file conflicts with remote".to_string()
+                        } else {
+                            conflict_list
+                        }
                     ));
                 }
                 Err(e) => {
@@ -316,7 +325,14 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
         Action::SetPrimary { app, path } => {
             let source: Option<String> = state.selected_app_source().cloned();
             let source_ref = source.as_deref();
-            match crate::ops::set_primary(&app, &path, source_ref, &mut state.shared, &state.local, &state.roost_dir) {
+            match crate::ops::set_primary(
+                &app,
+                &path,
+                source_ref,
+                &mut state.shared,
+                &state.local,
+                &state.roost_dir,
+            ) {
                 Ok(()) => {
                     state.status_message = Some(format!("Set primary config for '{}'", app));
                 }
@@ -344,7 +360,13 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             } else {
                 None
             };
-            match crate::ops::create_profile(&name, copy_from, &mut state.shared, &state.local, &state.roost_dir) {
+            match crate::ops::create_profile(
+                &name,
+                copy_from,
+                &mut state.shared,
+                &state.local,
+                &state.roost_dir,
+            ) {
                 Ok(()) => {
                     state.status_message = Some(format!("Created profile '{}'", name));
                 }
@@ -354,7 +376,12 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             }
         }
         Action::DeleteProfile(name) => {
-            match crate::ops::delete_profile(&name, &mut state.shared, &mut state.local, &state.roost_dir) {
+            match crate::ops::delete_profile(
+                &name,
+                &mut state.shared,
+                &mut state.local,
+                &state.roost_dir,
+            ) {
                 Ok(()) => {
                     state.status_message = Some(format!("Deleted profile '{}'", name));
                     state.profile_dialog = None;
@@ -368,9 +395,16 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             app,
             source_profile,
         } => {
-            match crate::ops::import_app(&app, &source_profile, &mut state.shared, &mut state.local, &state.roost_dir) {
+            match crate::ops::import_app(
+                &app,
+                &source_profile,
+                &mut state.shared,
+                &mut state.local,
+                &state.roost_dir,
+            ) {
                 Ok(_) => {
-                    state.pending_auto_commit = Some(format!("import: {} from {}", app, source_profile));
+                    state.pending_auto_commit =
+                        Some(format!("import: {} from {}", app, source_profile));
                     state.status_message =
                         Some(format!("Imported '{}' from '{}'", app, source_profile));
                     state.sync_miller_to_selected_app();
@@ -384,10 +418,18 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
             app,
             target_profile,
         } => {
-            match crate::ops::copy_app(&app, &target_profile, &mut state.shared, &state.local, &state.roost_dir) {
+            match crate::ops::copy_app(
+                &app,
+                &target_profile,
+                &mut state.shared,
+                &state.local,
+                &state.roost_dir,
+            ) {
                 Ok(_) => {
-                    state.pending_auto_commit = Some(format!("copy: {} to {}", app, target_profile));
-                    state.status_message = Some(format!("Copied '{}' to '{}'", app, target_profile));
+                    state.pending_auto_commit =
+                        Some(format!("copy: {} to {}", app, target_profile));
+                    state.status_message =
+                        Some(format!("Copied '{}' to '{}'", app, target_profile));
                     state.sync_miller_to_selected_app();
                 }
                 Err(e) => {
@@ -437,7 +479,14 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                             app_name
                         };
                         let is_dir = item.item_type == crate::scanner::ItemType::Dir;
-                        match crate::ops::add_app(&item.path, &app_name, is_dir, &mut state.shared, &mut state.local, &roost_dir) {
+                        match crate::ops::add_app(
+                            &item.path,
+                            &app_name,
+                            is_dir,
+                            &mut state.shared,
+                            &mut state.local,
+                            &roost_dir,
+                        ) {
                             Ok(result) => {
                                 added.push(result.app_name);
                             }
@@ -471,7 +520,8 @@ fn process_action(state: &mut MainViewState, action: Action) -> Result<()> {
                     state.status_message = Some(format!("Added ignore pattern '{}'", pattern));
                 }
                 Ok(false) => {
-                    state.status_message = Some(format!("Ignore pattern '{}' already exists", pattern));
+                    state.status_message =
+                        Some(format!("Ignore pattern '{}' already exists", pattern));
                 }
                 Err(e) => {
                     state.status_message = Some(format!("Error adding ignore pattern: {}", e));

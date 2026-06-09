@@ -39,8 +39,58 @@ pub fn add_app(
         bail!("Path '{}' does not exist.", origin.display());
     }
 
-    if shared.apps.contains_key(app_name) {
-        bail!("App '{}' already managed.", app_name);
+    if let Some(existing_app) = shared.apps.get(app_name) {
+        if local.link_paths.contains_key(app_name) {
+            bail!("App '{}' already managed.", app_name);
+        }
+
+        let active_profile_has_app = shared
+            .profiles
+            .get(&profile_name)
+            .map(|profile| profile.apps.contains(app_name))
+            .unwrap_or(false);
+        if active_profile_has_app {
+            bail!(
+                "App is already on this profile but has no local path. Switch/create another profile and run roost add <path> there first."
+            );
+        }
+
+        if existing_app.is_dir != is_dir {
+            bail!(
+                "App '{}' already exists as a {}.",
+                app_name,
+                if existing_app.is_dir {
+                    "directory"
+                } else {
+                    "file"
+                }
+            );
+        }
+
+        linker::ingest(origin, &pdir, app_name, is_dir)?;
+
+        if let Some(profile) = shared.profiles.get_mut(&profile_name) {
+            profile.apps.insert(app_name.to_string());
+        }
+        if let Some(app_entry) = shared.apps.get_mut(app_name) {
+            app_entry.on_profiles.insert(profile_name.clone());
+        }
+
+        local
+            .link_paths
+            .insert(app_name.to_string(), origin.to_path_buf());
+
+        save_shared(&shared_config_path(roost_dir), shared)?;
+        save_local(&local_config_path(roost_dir), local)?;
+
+        let actions = linker::ensure_links(shared, local, roost_dir)?;
+
+        crate::gitignore::regenerate(roost_dir, &shared.ignored, &shared.apps)?;
+
+        return Ok(AddAppResult {
+            app_name: app_name.to_string(),
+            link_actions: actions,
+        });
     }
 
     linker::ingest(origin, &pdir, app_name, is_dir)?;

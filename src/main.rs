@@ -160,18 +160,23 @@ fn format_app(
 ) -> Option<String> {
     let app = shared.apps.get(app_name)?;
     let kind = if app.is_dir { "dir" } else { "file" };
-    let origin = local
-        .link_paths
-        .get(app_name)
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
-    Some(format!(
-        "{} {} {} {}",
-        style(app_name).cyan(),
-        style(format!("({})", kind)).dim(),
-        style("→").dim(),
-        style(origin).dim(),
-    ))
+    if let Some(origin) = local.link_paths.get(app_name) {
+        Some(format!(
+            "{} {} {} {}",
+            style(app_name).cyan(),
+            style(format!("({})", kind)).dim(),
+            style("→").dim(),
+            style(origin.display()).dim(),
+        ))
+    } else {
+        Some(format!(
+            "{} {} {} {}",
+            style("(!)").red().bold(),
+            style(app_name).cyan(),
+            style(format!("({})", kind)).dim(),
+            style("→ [unlinked: no local path]").dim(),
+        ))
+    }
 }
 
 fn cmd_where(app_name: &str, profile: Option<String>) -> Result<()> {
