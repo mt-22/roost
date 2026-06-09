@@ -122,9 +122,7 @@ fn import_app_creates_cross_profile_symlink() {
 
     let config: toml::Value =
         toml::from_str(&fs::read_to_string(roost_dir.join("roost.toml")).unwrap()).unwrap();
-    let laptop_apps = config["profiles"]["laptop"]["apps"]
-        .as_array()
-        .unwrap();
+    let laptop_apps = config["profiles"]["laptop"]["apps"].as_array().unwrap();
     assert!(laptop_apps.iter().any(|v| v.as_str() == Some("nvim")));
     let app_sources = config["profiles"]["laptop"]["app_sources"]
         .as_table()
@@ -186,9 +184,7 @@ fn copy_app_creates_independent_copy() {
 
     let config: toml::Value =
         toml::from_str(&fs::read_to_string(roost_dir.join("roost.toml")).unwrap()).unwrap();
-    let desktop_apps = config["profiles"]["desktop"]["apps"]
-        .as_array()
-        .unwrap();
+    let desktop_apps = config["profiles"]["desktop"]["apps"].as_array().unwrap();
     assert!(desktop_apps.iter().any(|v| v.as_str() == Some("nvim")));
 }
 

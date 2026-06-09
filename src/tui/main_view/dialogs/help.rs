@@ -79,7 +79,6 @@ pub const KEYBINDS: &[KeybindEntry] = &[
         key: "m",
         description: "Copy app to another profile",
     },
-
     // Files panel
     KeybindEntry {
         key: "e / Enter",

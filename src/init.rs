@@ -70,6 +70,24 @@ pub fn run_wizard() -> Result<()> {
         Some(remote_url.trim().to_string())
     };
 
+    if !existing_shared
+        && !existing_local
+        && let Some(ref url) = remote_url
+    {
+        match git::hydrate_existing_remote(&roost_dir, url)? {
+            git::RemoteHydration::Hydrated => {
+                println!(
+                    "{}",
+                    style("Existing remote found. Hydrating Roost state...")
+                        .cyan()
+                        .bold()
+                );
+                return reconstruct_local(&roost_dir, shared_path.clone(), local_path.clone());
+            }
+            git::RemoteHydration::EmptyRemote => {}
+        }
+    }
+
     let hostname = get_hostname();
     let profile_name: String = Input::with_theme(&theme)
         .with_prompt("Profile name:")

@@ -195,6 +195,40 @@ workonly = "/fake/path/workonly"
 }
 
 #[test]
+fn list_marks_apps_without_local_link_paths_as_unlinked() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path();
+    setup_roost(dir);
+    std::fs::write(
+        dir.join("roost.toml"),
+        r#"
+ignored = []
+
+[profiles]
+[profiles.default]
+apps = ["nvim"]
+app_sources = {}
+
+[apps.nvim]
+is_dir = true
+on_profiles = ["default"]
+ignore = []
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("roost")
+        .unwrap()
+        .env("ROOST_DIR", dir)
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(!)"))
+        .stdout(predicate::str::contains("nvim"))
+        .stdout(predicate::str::contains("[unlinked: no local path]"));
+}
+
+#[test]
 fn list_errors_for_unknown_profile() {
     let tmp = TempDir::new().unwrap();
     let dir = tmp.path();

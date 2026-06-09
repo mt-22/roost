@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use predicates::prelude::*;
 use std::fs;
 use tempfile::TempDir;
 
@@ -257,7 +258,183 @@ fn remove_all_restores_directories() {
     assert!(!test_dir.is_symlink());
     assert!(test_dir.is_dir());
     assert!(test_dir.join("config.yml").exists());
-    assert_eq!(fs::read_to_string(test_dir.join("config.yml")).unwrap(), "data");
+    assert_eq!(
+        fs::read_to_string(test_dir.join("config.yml")).unwrap(),
+        "data"
+    );
+}
+
+#[test]
+fn add_existing_unlinked_app_to_new_active_profile_sets_local_path() {
+    let tmp = TempDir::new().unwrap();
+    let roost_dir = tmp.path().join("roost");
+    setup_roost(&roost_dir);
+    fs::write(
+        roost_dir.join("roost.toml"),
+        r#"
+ignored = []
+
+[profiles]
+[profiles.default]
+apps = ["nvim"]
+app_sources = {}
+
+[profiles.work]
+apps = []
+app_sources = {}
+
+[apps.nvim]
+is_dir = true
+on_profiles = ["default"]
+ignore = []
+"#,
+    )
+    .unwrap();
+    fs::write(
+        roost_dir.join("local.toml"),
+        r#"
+active_profile = "work"
+
+[os_info]
+os = "test"
+arch = "x86_64"
+
+[link_paths]
+"#,
+    )
+    .unwrap();
+    let nvim_dir = tmp.path().join("nvim");
+    fs::create_dir_all(&nvim_dir).unwrap();
+    fs::write(nvim_dir.join("init.lua"), "vim.o.number = true").unwrap();
+
+    Command::cargo_bin("roost")
+        .unwrap()
+        .env("ROOST_DIR", &roost_dir)
+        .arg("add")
+        .arg(&nvim_dir)
+        .assert()
+        .success();
+
+    assert!(nvim_dir.is_symlink());
+    assert!(
+        roost_dir
+            .join("work")
+            .join("nvim")
+            .join("init.lua")
+            .exists()
+    );
+
+    let shared: toml::Value =
+        toml::from_str(&fs::read_to_string(roost_dir.join("roost.toml")).unwrap()).unwrap();
+    let default_apps = shared["profiles"]["default"]["apps"].as_array().unwrap();
+    let work_apps = shared["profiles"]["work"]["apps"].as_array().unwrap();
+    let on_profiles = shared["apps"]["nvim"]["on_profiles"].as_array().unwrap();
+    assert!(default_apps.iter().any(|app| app.as_str() == Some("nvim")));
+    assert!(work_apps.iter().any(|app| app.as_str() == Some("nvim")));
+    assert!(
+        on_profiles
+            .iter()
+            .any(|profile| profile.as_str() == Some("default"))
+    );
+    assert!(
+        on_profiles
+            .iter()
+            .any(|profile| profile.as_str() == Some("work"))
+    );
+
+    let local = fs::read_to_string(roost_dir.join("local.toml")).unwrap();
+    assert!(local.contains("nvim"));
+    assert!(local.contains(&nvim_dir.display().to_string()));
+}
+
+#[test]
+fn add_existing_unlinked_app_on_active_profile_fails_with_recovery_hint() {
+    let tmp = TempDir::new().unwrap();
+    let roost_dir = tmp.path().join("roost");
+    setup_roost(&roost_dir);
+    fs::write(
+        roost_dir.join("roost.toml"),
+        r#"
+ignored = []
+
+[profiles]
+[profiles.default]
+apps = ["nvim"]
+app_sources = {}
+
+[apps.nvim]
+is_dir = true
+on_profiles = ["default"]
+ignore = []
+"#,
+    )
+    .unwrap();
+    let nvim_dir = tmp.path().join("nvim");
+    fs::create_dir_all(&nvim_dir).unwrap();
+
+    Command::cargo_bin("roost")
+        .unwrap()
+        .env("ROOST_DIR", &roost_dir)
+        .arg("add")
+        .arg(&nvim_dir)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("already on this profile"))
+        .stderr(predicate::str::contains("roost add"));
+}
+
+#[test]
+fn add_existing_app_with_local_path_still_fails_as_already_managed() {
+    let tmp = TempDir::new().unwrap();
+    let roost_dir = tmp.path().join("roost");
+    setup_roost(&roost_dir);
+    let existing_path = tmp.path().join("existing-nvim");
+    fs::create_dir_all(&existing_path).unwrap();
+    fs::write(
+        roost_dir.join("roost.toml"),
+        r#"
+ignored = []
+
+[profiles]
+[profiles.default]
+apps = ["nvim"]
+app_sources = {}
+
+[apps.nvim]
+is_dir = true
+on_profiles = ["default"]
+ignore = []
+"#,
+    )
+    .unwrap();
+    fs::write(
+        roost_dir.join("local.toml"),
+        format!(
+            r#"
+active_profile = "default"
+
+[os_info]
+os = "test"
+arch = "x86_64"
+
+[link_paths]
+nvim = "{}"
+"#,
+            existing_path.display()
+        ),
+    )
+    .unwrap();
+    let nvim_dir = tmp.path().join("nvim");
+    fs::create_dir_all(&nvim_dir).unwrap();
+
+    Command::cargo_bin("roost")
+        .unwrap()
+        .env("ROOST_DIR", &roost_dir)
+        .arg("add")
+        .arg(&nvim_dir)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("already managed"));
 }
 
 #[test]

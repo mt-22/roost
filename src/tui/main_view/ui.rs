@@ -158,6 +158,7 @@ fn render_apps_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
         .map(|(_vi, &original_idx)| {
             let name = apps[original_idx];
             let is_cursor = original_idx == cursor_original_idx;
+            let is_unlinked = state.app_is_unlinked(name);
 
             let source_prefix = state
                 .shared
@@ -169,7 +170,15 @@ fn render_apps_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
 
             let cursor_prefix = if is_cursor { "» " } else { "  " };
 
-            let name_style = if is_cursor {
+            let name_style = if is_unlinked {
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(if is_cursor {
+                        Modifier::BOLD | Modifier::DIM
+                    } else {
+                        Modifier::DIM
+                    })
+            } else if is_cursor {
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD)
@@ -177,12 +186,20 @@ fn render_apps_panel(state: &mut MainViewState, frame: &mut Frame, area: Rect) {
                 Style::default().fg(Color::White)
             };
 
-            let max_name_width = inner.width.saturating_sub(4) as usize;
-            let line = Line::from(vec![
+            let marker_width = if is_unlinked { 4 } else { 0 };
+            let max_name_width = inner.width.saturating_sub(4 + marker_width) as usize;
+            let mut spans = vec![
                 Span::styled(cursor_prefix, Style::default().fg(Color::Yellow)),
                 Span::raw(source_prefix),
-                Span::styled(truncate_str(name, max_name_width), name_style),
-            ]);
+            ];
+            if is_unlinked {
+                spans.push(Span::styled(
+                    "(!) ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ));
+            }
+            spans.push(Span::styled(truncate_str(name, max_name_width), name_style));
+            let line = Line::from(spans);
 
             let style = if is_cursor {
                 Style::default()
@@ -1089,5 +1106,73 @@ fn truncate_str(s: &str, max_width: usize) -> String {
             .take(max_width.saturating_sub(1))
             .collect::<String>()
             + "…"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{Application, LocalAppConfig, Profile, SharedAppConfig};
+    use crate::os_detect::OsInfo;
+    use ratatui::{Terminal, backend::TestBackend};
+    use std::collections::{BTreeMap, BTreeSet};
+    use tempfile::TempDir;
+
+    fn state_with_unlinked_app() -> (TempDir, MainViewState) {
+        let tmp = TempDir::new().unwrap();
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "default".to_string(),
+            Profile {
+                apps: BTreeSet::from(["nvim".to_string()]),
+                app_sources: BTreeMap::new(),
+            },
+        );
+        let mut apps = BTreeMap::new();
+        apps.insert(
+            "nvim".to_string(),
+            Application {
+                primary_config: None,
+                on_profiles: BTreeSet::from(["default".to_string()]),
+                is_dir: true,
+                ignore: Vec::new(),
+            },
+        );
+        let shared = SharedAppConfig {
+            remote: None,
+            profiles,
+            apps,
+            ignored: BTreeSet::new(),
+        };
+        let local = LocalAppConfig {
+            active_profile: "default".to_string(),
+            os_info: OsInfo {
+                os: "test".to_string(),
+                arch: "test".to_string(),
+            },
+            link_paths: BTreeMap::new(),
+        };
+        let state = MainViewState::new(tmp.path().to_path_buf(), shared, local);
+        (tmp, state)
+    }
+
+    #[test]
+    fn render_apps_panel_marks_unlinked_apps() {
+        let (_tmp, mut state) = state_with_unlinked_app();
+        let backend = TestBackend::new(60, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| render(&mut state, frame)).unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let rendered: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+        assert!(rendered.contains("(!)"));
+
+        let marker = buffer
+            .content()
+            .iter()
+            .find(|cell| cell.symbol() == "!")
+            .expect("unlinked marker should render");
+        assert_eq!(marker.fg, Color::Red);
     }
 }

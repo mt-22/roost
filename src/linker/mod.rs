@@ -20,9 +20,10 @@ pub fn validate_path_in_home(path: &Path, home: &Path) -> Result<()> {
 
     // Allow paths under the system temp directory (for integration tests using tempfile)
     let temp_dir = std::env::temp_dir();
-    let canonical_temp = temp_dir.canonicalize().unwrap_or_else(|_| temp_dir.to_path_buf());
-    let under_temp = canonical.starts_with(&canonical_temp)
-        || path.starts_with(&temp_dir);
+    let canonical_temp = temp_dir
+        .canonicalize()
+        .unwrap_or_else(|_| temp_dir.to_path_buf());
+    let under_temp = canonical.starts_with(&canonical_temp) || path.starts_with(&temp_dir);
 
     if !under_home && !under_temp {
         bail!(
