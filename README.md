@@ -75,6 +75,7 @@ cargo install --path .
 | `roost` | Launch the TUI (default when no command given) |
 | `roost add <path>` | Ingest a config path into the active profile |
 | `roost remove <app>` | Stop managing an app, restore original files |
+| `roost remove --all` | Stop managing ALL apps in the active profile, restore all original files |
 | `roost restore <app>` | Restore a single app's symlink |
 | `roost status` | Show managed apps and link status |
 | `roost where <app>` | Print where an app's files live in `~/.roost/` |
