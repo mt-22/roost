@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.2.4] — 2026-06-09
+
+### Added
+
+- **`roost remove --all`** — Removes all apps from the current profile and restores original config files
+
+### Testing
+
+- Integration tests for `remove --all`
+
+## [0.2.3] — 2026-06-07
+
+### Fixed
+
+- **Codebase audit fixes** — General cleanup and correctness improvements
+
+## [0.2.2] — 2026-06-07
+
+### Changed
+
+- **Unified mutation layer** — CLI and TUI now both route domain operations through `src/ops.rs` for a single source of truth
+
+### Fixed
+
+- **`remove_app` profile cleanup** — Removes the profile-level roost directory after unlinking an app
+- **`switch_profile` backups** — Properly handles existing conflicts and directories during profile switching
+- **`delete_profile` disk cleanup** — Removes the profile directory from disk when deleting a profile
+- **`safe_rollback` hard failures** — Fails hard on critical repair errors instead of silently continuing
+- **`remove_app` scope** — Only cleans the current profile, not all profiles
+
+## [0.2.1] — 2026-06-07
+
+### Added
+
+- **Import-from and copy-to for profiles** — Cross-profile app operations to import or copy apps between profiles
+
+### Changed
+
+- **Hardened safety documentation** — Updated README to stop over-promising and clarify actual capabilities
+- **Cross-platform support status** — Clarified OS compatibility claims in documentation
+
 ## [0.2.0] — 2026-06-06
 
 ### Added
@@ -22,6 +63,9 @@
 - **Path traversal validation** — `validate_path_in_home()` helper ensuring symlink targets stay within `~`
 - **App name sanitization** — Replaces `/`, `\`, `\0` with `_` in app names derived from filenames
 - **Suspend/resume infrastructure** — Generic helper to drop alternate screen for `$EDITOR`, `$PAGER`, and `git`
+- **Exit banner** — Random talking rooster ASCII art banner on TUI quit
+- **README** — Install guide, CLI reference, and TUI keybindings
+- **Crates.io publishing** — Published as `roost-dot` on crates.io
 
 ### Changed
 
@@ -30,6 +74,8 @@
 - **`ensure_links()` called after sync** — both CLI and TUI re-establish symlinks post-sync
 - **Confirm dialog renders on top** — fixes z-order bug where profile/ignore dialogs hid confirm overlays
 - **Panic hook / Ctrl-C handler consolidated** — single `tui::init()` using `OnceLock` replaces 3 duplicate registrations
+- **Quit keybinding** — Removed `Esc` as quit keybinding; use only `q`
+- **Crate name** — Renamed crate to `roost-dot` on crates.io (binary name stays `roost`)
 
 ### Fixed
 
@@ -46,6 +92,13 @@
 - **`rebase --continue` error propagation** — `git::sync()` surfaces failures instead of returning false `Clean`
 - **Temp backup clobbering** — Backups go to `.backups/` inside roost directory
 - **Git identity in tests** — All test helpers set `user.name`/`user.email`
+- **Single-file app view in Miller columns** — Fixed display for apps with only one file
+- **Status bar overflow** — Fixed overflow issues in status bar rendering
+- **Git conflict UX** — Improved user experience during merge conflicts
+- **Ctrl+C in raw mode** — Safe TUI exit when pressing Ctrl+C in raw terminal mode
+- **Single-file app filter preservation** — Preserves filter when clearing app search in single-file apps
+- **First push to new remote** — `sync` handles first push to a new remote correctly
+- **Remote URL updates** — `roost remote` allows updating existing remote URL
 
 ### Testing
 
