@@ -15,7 +15,7 @@
  --------/\/\---------------------------------------------
 ```
 
-# `roost` — per-device dotfile profiles, symlink-backed, git-synced
+# `roost` — TUI-first dotfile manager, written in Rust. Per-device dotfile profiles, symlink-backed, git-synced.
 
 Roost is a terminal-based dotfile manager that moves your application configuration files into a central directory (`~/.roost/`), organized by device-specific **profiles**, and creates symlinks back to their original locations. Optionally sync everything via Git for multi-device setups.
 
