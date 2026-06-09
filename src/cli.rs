@@ -15,7 +15,9 @@ pub enum Commands {
         path: PathBuf,
     },
     Remove {
-        app: String,
+        app: Option<String>,
+        #[arg(long)]
+        all: bool,
     },
     Sync,
     Profile(ProfileCmd),
