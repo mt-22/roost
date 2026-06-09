@@ -1,6 +1,6 @@
 [package]
 name = "roost-dot"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 license = "MIT"
 description = "A TUI-first, Rust-based dotfiles manager with git-sync"
