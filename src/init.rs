@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 
-use color_eyre::Result;
-use dialoguer::{Confirm, Input, MultiSelect, Select, console::style, theme::ColorfulTheme};
+use color_eyre::{Result, eyre::bail};
+use dialoguer::{Confirm, Input, MultiSelect, console::style, theme::ColorfulTheme};
 
 use crate::{app, app_selector, data, git, linker, logo, os_detect, scanner};
 
@@ -146,6 +146,7 @@ pub fn run_wizard() -> Result<()> {
     config.ignored = ignored;
 
     std::fs::create_dir_all(&roost_dir)?;
+    app::save_shared(&shared_path, &config)?;
     app::save_local(&local_path, &local)?;
 
     let ignored_set: HashSet<String> = config.ignored.iter().cloned().collect();
@@ -295,45 +296,46 @@ fn reconstruct_local(
     let theme = roost_theme();
     let mut config = app::load_shared(&shared_path)?;
 
-    let remote_url: String = Input::with_theme(&theme)
-        .with_prompt("Git remote URL (leave empty to keep existing)")
-        .allow_empty(true)
-        .interact()?;
-    let remote_url = if remote_url.trim().is_empty() {
-        config.remote.clone()
+    let configured_remote = if roost_dir.join(".git").exists() {
+        git::get_remote(roost_dir)?
     } else {
-        Some(remote_url.trim().to_string())
+        None
     };
+    let entered_remote = if configured_remote.is_none() {
+        let remote_url: String = Input::with_theme(&theme)
+            .with_prompt("Git remote URL (leave empty to keep existing)")
+            .allow_empty(true)
+            .interact()?;
+        if remote_url.trim().is_empty() {
+            None
+        } else {
+            Some(remote_url.trim().to_string())
+        }
+    } else {
+        None
+    };
+    let remote_url = configured_remote
+        .or(entered_remote)
+        .or_else(|| config.remote.clone());
     if remote_url.is_some() {
         config.remote = remote_url.clone();
     }
 
-    // Let user pick the active profile from existing profiles
-    let profile_name = if config.profiles.is_empty() {
-        let hostname = get_hostname();
-        println!(
-            "{}",
-            style("No profiles found in shared config. Creating new profile.").yellow()
-        );
-        config.profiles.insert(
-            hostname.clone(),
-            app::Profile {
-                apps: BTreeSet::new(),
-                app_sources: BTreeMap::new(),
-            },
-        );
-        hostname
-    } else if config.profiles.len() == 1 {
-        config.profiles.keys().next().unwrap().clone()
-    } else {
-        let profile_names: Vec<String> = config.profiles.keys().cloned().collect();
-        let idx = Select::with_theme(&theme)
-            .with_prompt("Choose active profile")
-            .items(&profile_names)
-            .default(0)
-            .interact()?;
-        profile_names[idx].clone()
-    };
+    let profile_name: String = Input::with_theme(&theme)
+        .with_prompt("New profile name for this device")
+        .default(get_hostname())
+        .interact()?;
+    app::validate_profile_name(&profile_name)?;
+    if config.profiles.contains_key(&profile_name) {
+        bail!("Profile '{}' already exists.", profile_name);
+    }
+    config.profiles.insert(
+        profile_name.clone(),
+        app::Profile {
+            apps: BTreeSet::new(),
+            app_sources: BTreeMap::new(),
+        },
+    );
 
     let home = dirs::home_dir().expect("no home directory");
     let mut local = app::LocalAppConfig {
