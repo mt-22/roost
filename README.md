@@ -36,7 +36,7 @@ Roost is a terminal-based dotfile manager that moves your application configurat
 - **Fuzzy search** — quickly find apps and files in the TUI
 - **Confidence-scored app detection** — automatically identifies 120+ known applications during setup
 - **Safety features** — atomic config writes, path traversal validation, app name sanitization, and config validation on load
-- *Should be cross-platform, between MacOS, Linux, and potentially Windows **(untested)***
+- *Compatible with MacOS and Linux (Windows untested)*
 
 ## Prerequisites
 
